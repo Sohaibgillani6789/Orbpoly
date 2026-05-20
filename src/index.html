@@ -7,23 +7,244 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Valley House</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-    <div class="loader-container">
-        <div class="loader-bar"></div>
+    <div class="loader-overlay" id="loading-overlay">
+        <div class="loader-bg" id="loading-bg"></div>
+        <div class="loader-bar-bottom" id="loading-bar"></div>
     </div>
     <button class="play-button">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="24px" height="24px">
             <path d="M8 5v14l11-7z"/>
         </svg>
     </button>
+
+    <div id="orb-ui" class="orb-counter-container" style="display:none;">
+        <div class="orb-icon"></div>
+        <div class="orb-text">ORBS</div>
+        <div class="orb-count" id="orb-count-text">0/5</div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         COMBAT HUD — Health Bars + Orb Counters
+         Shown when game starts via .visible class
+         ═══════════════════════════════════════════════════════ -->
+    <div id="combat-hud" class="combat-hud">
+        <!-- Player Side (Left) -->
+        <div class="combat-hud__side combat-hud__side--left">
+            <div class="combat-hud__name" id="player-hud-name">PLAYER</div>
+            <div class="combat-hud__health-bar">
+                <div class="combat-hud__health-fill" id="player-health-fill"></div>
+            </div>
+            <div class="combat-hud__orbs">
+                <span class="combat-hud__orb-icon"></span>
+                <span class="combat-hud__orb-text" id="player-orb-count">0/5</span>
+            </div>
+            <div class="combat-hud__lives" id="player-lives">❤️❤️</div>
+            <div class="combat-hud__barge-container">
+                <div class="combat-hud__barge-bar">
+                    <div class="combat-hud__barge-fill" id="barge-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- VS Divider -->
+        <div class="combat-hud__vs">VS</div>
+
+        <!-- Bot Side (Right) -->
+        <div class="combat-hud__side combat-hud__side--right">
+            <div class="combat-hud__name" id="bot-name">BOT</div>
+            <div class="combat-hud__health-bar">
+                <div class="combat-hud__health-fill" id="bot-health-fill"></div>
+            </div>
+            <div class="combat-hud__orbs">
+                <span class="combat-hud__orb-icon"></span>
+                <span class="combat-hud__orb-text" id="bot-orb-count">0/5</span>
+            </div>
+            <div class="combat-hud__lives" id="bot-lives">❤️❤️</div>
+        </div>
+    </div>
+
+    <!-- Winner Banner (hidden until game ends) -->
+    <div id="winner-banner" class="winner-banner">
+        <div class="winner-banner__glow"></div>
+        <div class="winner-banner__text" id="winner-text">Player Wins!</div>
+    </div>
+
+    <!-- Hit vignette — red flash on player damage -->
+    <div id="hit-vignette"></div>
+
     <canvas class="webgl"></canvas>
-    <div class="quote-container">
-        <div class="quote-text">Getting lost
-is a great way
-to find
-yourself!</div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         TIME-OF-DAY CONTROLS — Sun / Sunset / Moon icons
+         Always visible, positioned bottom-center
+         ═══════════════════════════════════════════════════════ -->
+    <div class="time-controls" id="time-controls">
+        <button class="time-controls__btn is-active" data-mood="day" aria-label="Day" title="Day">
+            <!-- Sun icon -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+        </button>
+        <button class="time-controls__btn" data-mood="evening" aria-label="Evening" title="Evening">
+            <!-- Sunset icon -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 18a5 5 0 0 0-10 0"/>
+                <line x1="12" y1="9" x2="12" y2="2"/>
+                <line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/>
+                <line x1="1" y1="18" x2="3" y2="18"/>
+                <line x1="21" y1="18" x2="23" y2="18"/>
+                <line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/>
+                <line x1="23" y1="22" x2="1" y2="22"/>
+                <polyline points="16 5 12 9 8 5"/>
+            </svg>
+        </button>
+        <button class="time-controls__btn" data-mood="night" aria-label="Night" title="Night">
+            <!-- Moon icon -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         CHARACTER SELECTION OVERLAY — Horizontal Card Scroller
+         Triggered by .is-visible class after camera intro
+         ═══════════════════════════════════════════════════════ -->
+    <div id="ui-root" class="char-select">
+      <div class="char-select__backdrop"></div>
+
+      <header class="char-select__header">
+        <span class="char-select__subtitle">CHOOSE YOUR</span>
+        <h1 class="char-select__title">Champion</h1>
+        <div class="char-select__title-line"></div>
+      </header>
+
+      <div class="char-select__carousel-wrap">
+        <!-- Fade edges -->
+        <div class="char-select__fade char-select__fade--left"></div>
+        <div class="char-select__fade char-select__fade--right"></div>
+
+        <!-- Arrow navigation -->
+        <button class="char-select__arrow char-select__arrow--left" id="cs-arrow-left" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button class="char-select__arrow char-select__arrow--right" id="cs-arrow-right" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+        </button>
+
+        <div class="char-select__track" id="cs-track">
+          <article class="char-card is-active" style="--i:0" data-character="warrior">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:200"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">01</span>
+              <div class="char-card__info">
+                <span class="char-card__class">MELEE · TANK</span>
+                <h2 class="player-name">WARRIOR</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+
+          <article class="char-card" style="--i:1" data-character="wizard">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:260"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">02</span>
+              <div class="char-card__info">
+                <span class="char-card__class">RANGED · MAGE</span>
+                <h2 class="player-name">WIZARD</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+
+          <article class="char-card" style="--i:2" data-character="rogue">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:150"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">03</span>
+              <div class="char-card__info">
+                <span class="char-card__class">MELEE · ASSASSIN</span>
+                <h2 class="player-name">ROGUE</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+
+          <article class="char-card" style="--i:3" data-character="ranger">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:120"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">04</span>
+              <div class="char-card__info">
+                <span class="char-card__class">RANGED · HUNTER</span>
+                <h2 class="player-name">RANGER</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+
+          <article class="char-card" style="--i:4" data-character="monk">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:40"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">05</span>
+              <div class="char-card__info">
+                <span class="char-card__class">MELEE · MARTIAL</span>
+                <h2 class="player-name">MONK</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+
+          <article class="char-card" style="--i:5" data-character="cleric">
+            <div class="char-card__bg">
+              <div class="char-card__portrait-img" style="--card-hue:180"></div>
+              <div class="char-card__shine"></div>
+            </div>
+            <div class="char-card__content">
+              <span class="char-card__number">06</span>
+              <div class="char-card__info">
+                <span class="char-card__class">SUPPORT · HEALER</span>
+                <h2 class="player-name">CLERIC</h2>
+                <div class="char-card__accent-line"></div>
+              </div>
+              <button class="char-card__select-btn">SELECT</button>
+            </div>
+          </article>
+        </div>
+      </div>
+
     </div>
     <div class="orientation-prompt">
         <svg class="orientation-icon" fill="white" viewBox="0 0 24 24">
@@ -32,9 +253,7 @@ yourself!</div>
         <div class="orientation-text">Go Wide!</div>
         <div class="orientation-text">Please rotate your device</div>
     </div>
-    <div class="fullscreen-container">
-        <button class="fullscreen-btn">Enter Experience</button>
-    </div>
+
     <script type="module" src="./script.js"></script>
 </body>
 </html>
