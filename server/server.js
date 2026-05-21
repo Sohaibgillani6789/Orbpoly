@@ -39,7 +39,7 @@ import { GameRoom, RoomState } from './GameRoom.js';
 
 // ─── CONFIG ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://orbpoly.vercel.app';
 const PLATFORM_RADIUS = 25;
 
 // ─── HTTP SERVER ──────────────────────────────────────────
