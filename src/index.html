@@ -80,45 +80,6 @@
 
     <canvas class="webgl"></canvas>
 
-    <!-- ═══════════════════════════════════════════════════════
-         TIME-OF-DAY CONTROLS — Sun / Sunset / Moon icons
-         Always visible, positioned bottom-center
-         ═══════════════════════════════════════════════════════ -->
-    <div class="time-controls" id="time-controls">
-        <button class="time-controls__btn is-active" data-mood="day" aria-label="Day" title="Day">
-            <!-- Sun icon -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="5"/>
-                <line x1="12" y1="1" x2="12" y2="3"/>
-                <line x1="12" y1="21" x2="12" y2="23"/>
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                <line x1="1" y1="12" x2="3" y2="12"/>
-                <line x1="21" y1="12" x2="23" y2="12"/>
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
-        </button>
-        <button class="time-controls__btn" data-mood="evening" aria-label="Evening" title="Evening">
-            <!-- Sunset icon -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 18a5 5 0 0 0-10 0"/>
-                <line x1="12" y1="9" x2="12" y2="2"/>
-                <line x1="4.22" y1="10.22" x2="5.64" y2="11.64"/>
-                <line x1="1" y1="18" x2="3" y2="18"/>
-                <line x1="21" y1="18" x2="23" y2="18"/>
-                <line x1="18.36" y1="11.64" x2="19.78" y2="10.22"/>
-                <line x1="23" y1="22" x2="1" y2="22"/>
-                <polyline points="16 5 12 9 8 5"/>
-            </svg>
-        </button>
-        <button class="time-controls__btn" data-mood="night" aria-label="Night" title="Night">
-            <!-- Moon icon -->
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-        </button>
-    </div>
 
     <!-- ═══════════════════════════════════════════════════════
          CHARACTER SELECTION OVERLAY — Horizontal Card Scroller
@@ -133,7 +94,38 @@
         <div class="char-select__title-line"></div>
       </header>
 
-      <div class="char-select__carousel-wrap">
+      <div class="char-select__layout">
+        <!-- Vertical Controls Guide Plane -->
+        <aside class="char-select__controls-guide">
+          <div class="controls-guide__bg"></div>
+          <h3 class="controls-guide__title">GAME CONTROLS</h3>
+          <ul class="controls-guide__list">
+            <li>
+              <div class="keys-wrap">
+                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+              </div>
+              <span>Move</span>
+            </li>
+            <li>
+              <div class="keys-wrap"><kbd class="kbd-wide">SPACE</kbd></div>
+              <span>Jump</span>
+            </li>
+            <li>
+              <div class="keys-wrap"><kbd class="kbd-wide">RMB</kbd></div>
+              <span>Attack</span>
+            </li>
+            <li>
+              <div class="keys-wrap"><kbd class="kbd-wide">LMB</kbd></div>
+              <span>Attack 2</span>
+            </li>
+            <li>
+              <div class="keys-wrap"><kbd class="kbd-wide">MMB</kbd></div>
+              <span>Shock</span>
+            </li>
+          </ul>
+        </aside>
+
+        <div class="char-select__carousel-wrap">
         <!-- Fade edges -->
         <div class="char-select__fade char-select__fade--left"></div>
         <div class="char-select__fade char-select__fade--right"></div>
@@ -153,13 +145,10 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">01</span>
               <div class="char-card__info">
-                <span class="char-card__class">MELEE · TANK</span>
                 <h2 class="player-name">WARRIOR</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
 
@@ -169,13 +158,10 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">02</span>
               <div class="char-card__info">
-                <span class="char-card__class">RANGED · MAGE</span>
                 <h2 class="player-name">WIZARD</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
 
@@ -185,13 +171,10 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">03</span>
               <div class="char-card__info">
-                <span class="char-card__class">MELEE · ASSASSIN</span>
                 <h2 class="player-name">ROGUE</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
 
@@ -201,13 +184,10 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">04</span>
               <div class="char-card__info">
-                <span class="char-card__class">RANGED · HUNTER</span>
                 <h2 class="player-name">RANGER</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
 
@@ -217,13 +197,10 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">05</span>
               <div class="char-card__info">
-                <span class="char-card__class">MELEE · MARTIAL</span>
                 <h2 class="player-name">MONK</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
 
@@ -233,19 +210,85 @@
               <div class="char-card__shine"></div>
             </div>
             <div class="char-card__content">
-              <span class="char-card__number">06</span>
               <div class="char-card__info">
-                <span class="char-card__class">SUPPORT · HEALER</span>
                 <h2 class="player-name">CLERIC</h2>
                 <div class="char-card__accent-line"></div>
               </div>
-              <button class="char-card__select-btn">SELECT</button>
             </div>
           </article>
         </div>
+        
+        <!-- Global Action Buttons -->
+        <div class="char-select__actions">
+          <button id="btn-play-offline" class="global-action-btn">PLAY OFFLINE</button>
+          <button id="btn-play-multiplayer" class="global-action-btn global-action-btn--mp">MULTIPLAYER</button>
+        </div>
+
+        </div>
       </div>
 
+
+
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         MULTIPLAYER LOBBY OVERLAY
+         Shown when player clicks MULTIPLAYER button
+         ═══════════════════════════════════════════════════════ -->
+    <div id="mp-lobby" class="mp-lobby" style="display:none;">
+      <div class="mp-lobby__backdrop"></div>
+      <div class="mp-lobby__panel">
+        <h2 class="mp-lobby__title">MULTIPLAYER</h2>
+        <div class="mp-lobby__title-line"></div>
+
+        <!-- Connection Status -->
+        <div class="mp-lobby__status" id="mp-status">Connecting...</div>
+        <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-retry-btn" style="display:none;">RETRY CONNECTION</button>
+
+        <!-- Create / Join -->
+        <div class="mp-lobby__actions" id="mp-actions" style="display:none;">
+          <button class="mp-lobby__btn mp-lobby__btn--create" id="mp-create-btn">CREATE ROOM</button>
+          <div class="mp-lobby__join-row">
+            <input type="text" class="mp-lobby__input" id="mp-room-code" placeholder="ROOM CODE" maxlength="5" spellcheck="false" autocomplete="off">
+            <button class="mp-lobby__btn mp-lobby__btn--join" id="mp-join-btn">JOIN</button>
+          </div>
+        </div>
+
+        <!-- Room List -->
+        <div class="mp-lobby__rooms" id="mp-rooms" style="display:none;">
+          <h3 class="mp-lobby__rooms-title">OPEN ROOMS</h3>
+          <div class="mp-lobby__rooms-list" id="mp-rooms-list"></div>
+        </div>
+
+        <!-- In-Room Waiting -->
+        <div class="mp-lobby__waiting" id="mp-waiting" style="display:none;">
+          <div class="mp-lobby__room-code-display">ROOM: <span id="mp-room-id-display"></span></div>
+          <div class="mp-lobby__players" id="mp-players-list"></div>
+          <button class="mp-lobby__btn mp-lobby__btn--start" id="mp-start-btn">START GAME</button>
+          <div class="mp-lobby__hint">Waiting for players...</div>
+        </div>
+
+        <!-- Back Button -->
+        <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-back-btn">← BACK</button>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         DISCONNECT OVERLAY — Shown when server drops mid-game
+         Auto-dismisses after 3s, returns to character select
+         ═══════════════════════════════════════════════════════ -->
+    <div id="disconnect-overlay" class="disconnect-overlay" style="display:none;">
+      <div class="disconnect-overlay__backdrop"></div>
+      <div class="disconnect-overlay__panel">
+        <div class="disconnect-overlay__icon">⚠️</div>
+        <h2 class="disconnect-overlay__title">Connection Lost</h2>
+        <p class="disconnect-overlay__msg">The server restarted. Returning to lobby...</p>
+        <div class="disconnect-overlay__bar-track">
+          <div class="disconnect-overlay__bar-fill"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="orientation-prompt">
         <svg class="orientation-icon" fill="white" viewBox="0 0 24 24">
             <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77c-.59-.59-1.54-.59-2.12 0L1.75 8.11c-.59.59-.59 1.54 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/>

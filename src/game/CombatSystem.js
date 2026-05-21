@@ -94,6 +94,8 @@ export class CombatSystem {
 
         if (player.isAttacking) {
             this._recentHits.set(pairKey, now);
+            // Shield blocks the hit entirely
+            if (otherPlayer.isShielding) return;
             this._applySuperKnockback(player, otherPlayer);
         } else {
             this._applyTinyNudge(player, otherPlayer);

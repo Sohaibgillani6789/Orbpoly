@@ -13,6 +13,7 @@ import rockFragmentShader from './shaders/rockFragment.glsl';
 import { noise3D, fbm3D } from './simplex3d.js';
 import { Tree } from '@dgreenheck/ez-tree';
 import { GameManager } from './game/GameManager.js';
+import { NetworkManager } from './game/NetworkManager.js';
 
 // All available character IDs for random bot selection
 const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'];
@@ -459,8 +460,31 @@ const MOOD_PROFILES = {
 // Current transition state
 let currentMoodKey = 'day';
 let targetMoodKey = 'day';
-const TRANSITION_DURATION = 4.0; // seconds
-const LERP_SPEED = 1.0 / TRANSITION_DURATION; // ~0.25 per second
+const TRANSITION_DURATION = 15.0; // seconds — cinematic slow transition
+const LERP_SPEED = 1.0 / TRANSITION_DURATION; // ~0.067 per second
+
+// ============================================================
+// AUTO DAY/NIGHT CYCLE SYSTEM
+// ============================================================
+const MOOD_SEQUENCE = ['day', 'evening', 'night']; // Cycle order
+const MOOD_HOLD_DURATION = 20.0; // seconds to hold each settled state
+let autoCycleActive = false;
+let moodHoldTimer = 0.0;        // Accumulates deltaTime while holding
+let currentSequenceIndex = 0;   // Index into MOOD_SEQUENCE
+let moodSettled = true;         // True when the current transition is visually complete
+
+/**
+ * Start the automatic day/night cycle.
+ * Called once after character selection completes.
+ */
+function startAutoCycle() {
+    if (autoCycleActive) return;
+    autoCycleActive = true;
+    moodHoldTimer = 0.0;
+    currentSequenceIndex = 0; // Start at 'day'
+    moodSettled = true;
+    console.log('🌅 Auto day/night cycle started');
+}
 
 // Pre-allocated scratch objects for zero-GC lerping in tick loop
 const _scratchColor = new THREE.Color();
@@ -479,11 +503,6 @@ function transitionTo(moodKey) {
 
     targetMoodKey = moodKey;
     console.log(`🌤️ Transitioning to: ${moodKey}`);
-
-    // Update UI button active states
-    document.querySelectorAll('.time-controls__btn').forEach(btn => {
-        btn.classList.toggle('is-active', btn.dataset.mood === moodKey);
-    });
 }
 
 const skyGeometry = new THREE.IcosahedronGeometry(50, 15);
@@ -1143,6 +1162,28 @@ const tick = () => {
         // Track current mood when transition is effectively complete
         const dist = skyUniforms.uSkyColorTop.value.getHex() === target.skyColorTop.getHex();
         if (dist) currentMoodKey = targetMoodKey;
+
+        // --- AUTO CYCLE: advance to next mood after hold period ---
+        if (autoCycleActive) {
+            if (currentMoodKey === targetMoodKey) {
+                // Transition settled — accumulate hold time
+                if (!moodSettled) {
+                    moodSettled = true;
+                    moodHoldTimer = 0.0;
+                    console.log(`🌤️ Settled at: ${currentMoodKey} — holding for ${MOOD_HOLD_DURATION}s`);
+                }
+                moodHoldTimer += deltaTime;
+
+                if (moodHoldTimer >= MOOD_HOLD_DURATION) {
+                    // Advance to next mood in sequence
+                    currentSequenceIndex = (currentSequenceIndex + 1) % MOOD_SEQUENCE.length;
+                    const nextMood = MOOD_SEQUENCE[currentSequenceIndex];
+                    moodSettled = false;
+                    moodHoldTimer = 0.0;
+                    transitionTo(nextMood);
+                }
+            }
+        }
     }
 
 
@@ -1313,19 +1354,7 @@ window.addEventListener('keydown', (e) => {
 
 tick()
 
-// ============================================================
-// TIME-OF-DAY UI EVENT LISTENERS
-// ============================================================
-document.querySelectorAll('.time-controls__btn').forEach(btn => {
-    // Prevent pointer events from propagating to the 3D canvas
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
 
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const mood = btn.dataset.mood;
-        if (mood) transitionTo(mood);
-    });
-});
 
 function initializeScene() {
     if (sceneInitialized) return;
@@ -1403,47 +1432,411 @@ function initializeScene() {
     }
 
 
-    // Handle character card clicks — immediate dismiss + start game
-    document.querySelectorAll('.char-card').forEach(card => {
+    // Handle character card clicks — just select the clicked card
+    document.querySelectorAll('.char-card').forEach((card, idx) => {
         card.addEventListener('pointerdown', (e) => e.stopPropagation());
 
         card.addEventListener('click', (e) => {
-            // Don't trigger if clicking the select button (it handles itself)
             if (e.target.closest('.char-select__arrow')) return;
             if (!uiRoot || uiRoot.classList.contains('is-exiting')) return;
 
-            const selectedCharacter = card.dataset.character;
-            console.log(`⚔️ Character selected: ${selectedCharacter}`);
-
-            // Visual feedback: mark selected card
-            card.classList.add('is-selected');
-
-            // Trigger exit animation (all CSS-driven)
-            uiRoot.classList.remove('is-visible');
-            uiRoot.classList.add('is-exiting');
-
-            // After exit animation completes, hide overlay and load character and start game
-            setTimeout(async () => {
-                uiRoot.style.display = 'none';
-
-                const charData = await loadCharacters(selectedCharacter);
-                await initGameManager(selectedCharacter, charData);
-
-                if (gameManager) {
-                    gameManager.start();
-
-                    // Show combat HUD
-                    const combatHud = document.getElementById('combat-hud');
-                    if (combatHud) combatHud.classList.add('visible');
-
-                    // Update player name in HUD
-                    const playerNameEl = document.getElementById('player-hud-name');
-                    if (playerNameEl) playerNameEl.textContent = selectedCharacter.toUpperCase();
-                }
-                console.log('🎮 Game started');
-            }, 800);
+            // If an adjacent card is clicked, bring it to the center
+            if (idx !== activeCardIndex) {
+                updateCarousel(idx);
+            }
         });
     });
+
+    // Helper to get currently selected character from carousel
+    function getSelectedCharacter() {
+        return cards[activeCardIndex].dataset.character;
+    }
+
+    // Single-player start game flow
+    function startGame(selectedCharacter) {
+        if (!uiRoot || uiRoot.classList.contains('is-exiting')) return;
+        
+        console.log(`⚔️ Singleplayer selected: ${selectedCharacter}`);
+        
+        // Trigger exit animation
+        uiRoot.classList.remove('is-visible');
+        uiRoot.classList.add('is-exiting');
+
+        // After exit animation completes, hide overlay and load character and start game
+        setTimeout(async () => {
+            uiRoot.style.display = 'none';
+
+            const charData = await loadCharacters(selectedCharacter);
+            await initGameManager(selectedCharacter, charData);
+
+            if (gameManager) {
+                gameManager.start();
+
+                // Show combat HUD
+                const combatHud = document.getElementById('combat-hud');
+                if (combatHud) combatHud.classList.add('visible');
+
+                // Update player name in HUD
+                const playerNameEl = document.getElementById('player-hud-name');
+                if (playerNameEl) playerNameEl.textContent = selectedCharacter.toUpperCase();
+
+                // Begin automatic day/night cycle
+                startAutoCycle();
+            }
+            console.log('🎮 Game started');
+        }, 800);
+    }
+
+    // Add listeners for global action buttons
+    const btnPlayOffline = document.getElementById('btn-play-offline');
+    const btnPlayMultiplayer = document.getElementById('btn-play-multiplayer');
+
+    if (btnPlayOffline) {
+        btnPlayOffline.addEventListener('pointerdown', (e) => e.stopPropagation());
+        btnPlayOffline.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame(getSelectedCharacter());
+        });
+    }
+
+    if (btnPlayMultiplayer) {
+        btnPlayMultiplayer.addEventListener('pointerdown', (e) => e.stopPropagation());
+        btnPlayMultiplayer.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const selectedCharacter = getSelectedCharacter();
+            console.log(`🌐 Multiplayer selected: ${selectedCharacter}`);
+            openMultiplayerLobby(selectedCharacter);
+        });
+    }
+
+    // ── MULTIPLAYER LOBBY FLOW ──────────────────────────────
+    // Server URL: dynamically resolve for local dev, or fallback to production URL
+    const MP_SERVER_URL = import.meta.env.VITE_MP_SERVER_URL || 
+        (import.meta.env.DEV ? `http://${window.location.hostname}:3001` : 'https://orbpoly-server.onrender.com');
+
+    let mpNetworkManager = null;
+    let mpSelectedCharacter = null;
+
+    // Back button — close lobby, return to char select
+    const mpBackBtn = document.getElementById('mp-back-btn');
+    if (mpBackBtn) {
+        mpBackBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        mpBackBtn.addEventListener('click', () => {
+            const lobby = document.getElementById('mp-lobby');
+            if (lobby) lobby.style.display = 'none';
+            if (mpNetworkManager) {
+                mpNetworkManager.disconnect();
+                mpNetworkManager = null;
+            }
+        });
+    }
+
+    // Create Room button
+    const mpCreateBtn = document.getElementById('mp-create-btn');
+    if (mpCreateBtn) {
+        mpCreateBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        mpCreateBtn.addEventListener('click', () => {
+            if (!mpNetworkManager || !mpSelectedCharacter) return;
+            mpNetworkManager.createRoom(mpSelectedCharacter, mpSelectedCharacter.toUpperCase());
+        });
+    }
+
+    // Join Room button
+    const mpJoinBtn = document.getElementById('mp-join-btn');
+    if (mpJoinBtn) {
+        mpJoinBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        mpJoinBtn.addEventListener('click', () => {
+            const codeInput = document.getElementById('mp-room-code');
+            const code = codeInput ? codeInput.value.trim().toUpperCase() : '';
+            if (!code || !mpNetworkManager || !mpSelectedCharacter) return;
+            mpNetworkManager.joinRoom(code, mpSelectedCharacter, mpSelectedCharacter.toUpperCase());
+        });
+    }
+
+    // Start Game button
+    const mpStartBtn = document.getElementById('mp-start-btn');
+    if (mpStartBtn) {
+        mpStartBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        mpStartBtn.addEventListener('click', () => {
+            if (mpNetworkManager) mpNetworkManager.startGame();
+        });
+    }
+
+    /**
+     * Opens the multiplayer lobby for a given character selection.
+     */
+    async function openMultiplayerLobby(characterId) {
+        mpSelectedCharacter = characterId;
+        const lobby = document.getElementById('mp-lobby');
+        const status = document.getElementById('mp-status');
+        const actions = document.getElementById('mp-actions');
+        const waiting = document.getElementById('mp-waiting');
+
+        if (!lobby) return;
+        lobby.style.display = 'flex';
+        if (status) status.textContent = 'Connecting to server...';
+        if (actions) actions.style.display = 'none';
+        if (waiting) waiting.style.display = 'none';
+
+        // Connect to server
+        mpNetworkManager = new NetworkManager(MP_SERVER_URL);
+
+        // Wire callbacks
+        mpNetworkManager.onRoomCreated((data) => {
+            showWaitingRoom(data.roomId);
+        });
+
+        mpNetworkManager.onRoomJoined((data) => {
+            showWaitingRoom(data.roomId);
+            updatePlayersList(data.players || []);
+        });
+
+        mpNetworkManager.onPlayerJoined((data) => {
+            // Refresh player list in waiting room
+            const list = document.getElementById('mp-players-list');
+            if (list) {
+                const item = document.createElement('div');
+                item.className = 'mp-lobby__player-item';
+                item.innerHTML = `<span>${data.name}</span><span class="mp-lobby__player-class">${data.characterClass}</span>`;
+                list.appendChild(item);
+            }
+        });
+
+        mpNetworkManager.onPlayerLeft((data) => {
+            console.log(`👤 ${data.name} left the room`);
+        });
+
+        mpNetworkManager.onGameStart(async (data) => {
+            console.log('🎮 Multiplayer game starting!');
+            const lobby = document.getElementById('mp-lobby');
+            if (lobby) lobby.style.display = 'none';
+
+            // Hide char select
+            if (uiRoot) {
+                uiRoot.classList.remove('is-visible');
+                uiRoot.classList.add('is-exiting');
+                setTimeout(() => { uiRoot.style.display = 'none'; }, 400);
+            }
+
+            // Load local player character
+            const charData = await loadCharacters(mpSelectedCharacter);
+            await initGameManager(mpSelectedCharacter, charData);
+
+            if (gameManager && mpNetworkManager) {
+                // Enable multiplayer mode
+                gameManager.setNetworkManager(mpNetworkManager);
+
+                // Load remote players
+                for (const p of data.players) {
+                    if (p.id !== mpNetworkManager.playerId) {
+                        await gameManager.addRemotePlayer(
+                            p.id,
+                            p.characterClass,
+                            p.name,
+                            p.position
+                        );
+                    }
+                }
+
+                // Wire hit/ringout/respawn/gameover events
+                mpNetworkManager.onPlayerHit((hitData) => {
+                    if (gameManager) {
+                        gameManager.handleRemoteHit(hitData);
+                        // Play VFX for hits (screen shake if local player is victim)
+                        if (hitData.victimId === mpNetworkManager.playerId) {
+                            gameManager._triggerScreenShake(0.35, 0.25);
+                            gameManager._triggerVignette();
+                        }
+                    }
+                });
+                
+                mpNetworkManager.onPlayerRingout((data) => {
+                    if (gameManager && data.id === mpNetworkManager.playerId) {
+                        gameManager._triggerScreenShake(0.5, 0.4);
+                        gameManager._triggerVignette();
+                    }
+                });
+                
+                mpNetworkManager.onPlayerRespawn((data) => {
+                    if (gameManager) {
+                        gameManager.handleRemoteRespawn(data);
+                    }
+                });
+
+                mpNetworkManager.onPlayerLeft((leftData) => {
+                    gameManager.removeRemotePlayer(leftData.id);
+                });
+
+                mpNetworkManager.onGameOver((overData) => {
+                    const isLocalWinner = overData.winnerId === mpNetworkManager.playerId;
+                    gameManager.declareWinner(isLocalWinner ? 'You' : overData.winnerName);
+                });
+
+                gameManager.start();
+
+                // Show combat HUD
+                const combatHud = document.getElementById('combat-hud');
+                if (combatHud) combatHud.classList.add('visible');
+
+                const playerNameEl = document.getElementById('player-hud-name');
+                if (playerNameEl) playerNameEl.textContent = mpSelectedCharacter.toUpperCase();
+
+                startAutoCycle();
+                console.log('🎮 Multiplayer game started!');
+
+                // ── Mid-game disconnect recovery ──
+                // Override the lobby disconnect handler with a game-aware one
+                mpNetworkManager.onDisconnect((reason) => {
+                    console.warn(`⚠️ Mid-game disconnect: ${reason}`);
+                    if (gameManager) {
+                        gameManager.stop();
+                        // Remove all remote player meshes from scene
+                        if (gameManager.remotePlayers) {
+                            for (const [id, rpc] of gameManager.remotePlayers) {
+                                if (rpc.model) scene.remove(rpc.model);
+                            }
+                            gameManager.remotePlayers.clear();
+                        }
+                        gameManager = null;
+                    }
+                    if (mpNetworkManager) {
+                        mpNetworkManager.disconnect();
+                        mpNetworkManager = null;
+                    }
+                    cameraFollowMode = false;
+                    showDisconnectOverlay();
+                });
+            }
+        });
+
+        mpNetworkManager.onRoomList((rooms) => {
+            const roomsDiv = document.getElementById('mp-rooms');
+            const roomsList = document.getElementById('mp-rooms-list');
+            if (!roomsDiv || !roomsList) return;
+
+            if (rooms.length === 0) {
+                roomsDiv.style.display = 'none';
+                return;
+            }
+
+            roomsDiv.style.display = 'block';
+            roomsList.innerHTML = '';
+            for (const room of rooms) {
+                if (room.state !== 'waiting') continue;
+                const item = document.createElement('div');
+                item.className = 'mp-lobby__room-item';
+                item.innerHTML = `<span>${room.roomId}</span><span>${room.playerCount}/${room.maxPlayers}</span>`;
+                item.addEventListener('click', () => {
+                    mpNetworkManager.joinRoom(room.roomId, mpSelectedCharacter, mpSelectedCharacter.toUpperCase());
+                });
+                roomsList.appendChild(item);
+            }
+        });
+
+        mpNetworkManager.onError((err) => {
+            if (status) status.textContent = `Error: ${err.message}`;
+        });
+
+        mpNetworkManager.onDisconnect((reason) => {
+            if (status) status.textContent = `Disconnected: ${reason}`;
+            if (actions) actions.style.display = 'none';
+        });
+
+        mpNetworkManager.onReconnectAttempt((attempt) => {
+            if (status) status.textContent = `Reconnecting... (Attempt ${attempt})`;
+        });
+
+        mpNetworkManager.onReconnect(() => {
+            if (status) status.textContent = 'Reconnected!';
+            if (actions) actions.style.display = 'flex';
+        });
+
+        const retryBtn = document.getElementById('mp-retry-btn');
+        const handleConnect = async () => {
+            if (retryBtn) retryBtn.style.display = 'none';
+            if (status) status.textContent = 'Connecting to server...';
+
+            // Show "waking up" message if connection takes > 2.5s (Render free tier cold start)
+            const wakingTimeout = setTimeout(() => {
+                if (status) status.textContent = '⏳ Waking up combat servers...';
+            }, 2500);
+
+            try {
+                await mpNetworkManager.connect();
+                clearTimeout(wakingTimeout);
+                if (status) status.textContent = 'Connected!';
+                if (actions) actions.style.display = 'flex';
+            } catch (err) {
+                clearTimeout(wakingTimeout);
+                if (status) status.textContent = `Failed to connect: ${err.message}`;
+                if (retryBtn) retryBtn.style.display = 'block';
+            }
+        };
+
+        if (retryBtn) {
+            // Remove previous event listeners by replacing the node
+            const newRetryBtn = retryBtn.cloneNode(true);
+            retryBtn.parentNode.replaceChild(newRetryBtn, retryBtn);
+            newRetryBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            newRetryBtn.addEventListener('click', handleConnect);
+        }
+
+        handleConnect();
+    }
+
+    /**
+     * Shows the disconnect overlay and auto-returns to character select after 3 seconds.
+     */
+    function showDisconnectOverlay() {
+        const overlay = document.getElementById('disconnect-overlay');
+        if (overlay) {
+            overlay.style.display = 'flex';
+            // Auto-dismiss after 3s and return to char select
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                // Show character selection again
+                const uiRoot = document.getElementById('ui-root');
+                if (uiRoot) {
+                    uiRoot.style.display = '';
+                    uiRoot.classList.remove('is-exiting');
+                    uiRoot.classList.add('is-visible');
+                }
+                // Hide combat HUD
+                const combatHud = document.getElementById('combat-hud');
+                if (combatHud) combatHud.classList.remove('visible');
+                // Hide lobby
+                const lobby = document.getElementById('mp-lobby');
+                if (lobby) lobby.style.display = 'none';
+            }, 3000);
+        }
+    }
+
+    function showWaitingRoom(roomId) {
+        const actions = document.getElementById('mp-actions');
+        const waiting = document.getElementById('mp-waiting');
+        const roomDisplay = document.getElementById('mp-room-id-display');
+        const rooms = document.getElementById('mp-rooms');
+
+        if (actions) actions.style.display = 'none';
+        if (rooms) rooms.style.display = 'none';
+        if (waiting) waiting.style.display = 'flex';
+        if (roomDisplay) roomDisplay.textContent = roomId;
+    }
+
+    function updatePlayersList(players) {
+        const list = document.getElementById('mp-players-list');
+        if (!list) return;
+        list.innerHTML = '';
+        for (const p of players) {
+            const item = document.createElement('div');
+            item.className = 'mp-lobby__player-item';
+            item.innerHTML = `<span>${p.name}</span><span class="mp-lobby__player-class">${p.characterClass}</span>`;
+            list.appendChild(item);
+        }
+    }
+
+    // Expose for character cards to trigger multiplayer
+    window.__openMultiplayerLobby = openMultiplayerLobby;
 }
 
 // Orientation logic
@@ -1464,7 +1857,7 @@ window.addEventListener('orientationchange', checkOrientation);
 checkOrientation(); // run once at start
 
 // ============================================================
-// DISPOSAL — GPU memory cleanup (opt.md §1)
+// DISPOSAL — GPU memory cleanup
 // ============================================================
 function disposeScene() {
     scene.traverse((obj) => {

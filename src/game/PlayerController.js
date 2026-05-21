@@ -72,6 +72,8 @@ export class PlayerController {
         this._hitFlashTimeout = null;
         this._onHitCallback = null;
         this._onBargeCallback = null;
+        this._onShieldCallback = null;
+        this._onShieldEndCallback = null;
 
         // --- Barge ability ---
         this.bargeCooldown = 0;        // seconds remaining
@@ -83,6 +85,19 @@ export class PlayerController {
         // Reusable vectors to avoid per-frame allocation
         this._forceVec = new CANNON.Vec3();
         this._bargeImpulse = new CANNON.Vec3();
+
+        // --- Multiplayer tracking ---
+        /** @type {boolean} True if the player jumped this frame (consumed by GameManager for network) */
+        this._lastJumped = false;
+        /** @type {{x: number, z: number}} Last computed camera-relative movement direction */
+        this._lastInputDir = { x: 0, z: 0 };
+
+        // --- Shield ability ---
+        this.isShielding = false;
+        this.shieldCooldown = 0;
+        this.shieldCooldownMax = 5;
+        this.shieldTimer = 0;
+        this.shieldDuration = 10;
     }
 
     /**
@@ -106,6 +121,11 @@ export class PlayerController {
     processInput(dt, inputManager, cameraYaw = 0) {
         if (!this.isAlive || !this.isLocalPlayer) return;
 
+        // Reset per-frame multiplayer flags
+        this._lastJumped = false;
+        this._lastInputDir.x = 0;
+        this._lastInputDir.z = 0;
+
         const jumpPressed = inputManager.consumeJump();
         const isGrounded = Math.abs(this.body.velocity.y) < 0.1;
 
@@ -118,6 +138,24 @@ export class PlayerController {
         if (inputManager.consumeBarge() && this.bargeCooldown <= 0) {
             this.bargeCooldown = this.bargeCooldownMax;
             if (this._onBargeCallback) this._onBargeCallback();
+        }
+
+        // --- Shield input (F key) ---
+        if (this.shieldCooldown > 0) {
+            this.shieldCooldown = Math.max(0, this.shieldCooldown - dt);
+        }
+        if (this.shieldTimer > 0) {
+            this.shieldTimer -= dt;
+            if (this.shieldTimer <= 0) {
+                this.isShielding = false;
+                this.shieldCooldown = this.shieldCooldownMax;
+                if (this._onShieldEndCallback) this._onShieldEndCallback();
+            }
+        }
+        if (inputManager.consumeShield() && this.shieldCooldown <= 0 && !this.isShielding) {
+            this.isShielding = true;
+            this.shieldTimer = this.shieldDuration;
+            if (this._onShieldCallback) this._onShieldCallback();
         }
 
         // --- Attack input ---
@@ -162,6 +200,7 @@ export class PlayerController {
             if (jumpPressed && isGrounded && !this.animStateMachine.isLocked) {
                 this.body.velocity.y = 8; // Jump velocity
                 this.animStateMachine.setState(AnimState.JUMP);
+                this._lastJumped = true; // Track for network
             }
 
             const move = inputManager.getMovementVector();
@@ -186,6 +225,10 @@ export class PlayerController {
                 if (isGrounded) {
                     this.model.rotation.y = angle;
                 }
+
+                // Track for network
+                this._lastInputDir.x = dirX;
+                this._lastInputDir.z = dirZ;
 
                 // Only switch to RUN animation if not currently playing a locked animation (like attack)
                 if (isGrounded && !jumpPressed && !this.animStateMachine.isLocked) {
@@ -229,6 +272,41 @@ export class PlayerController {
             this.body.position.y - this._sphereRadius,
             this.body.position.z
         );
+    }
+
+    // ─── MULTIPLAYER RECONCILIATION ───────────────────
+
+    /**
+     * Applies authoritative server state to the local player's physics body.
+     * Called during reconciliation when a server snapshot arrives.
+     *
+     * Only corrects if the error exceeds a threshold to avoid micro-jitter.
+     *
+     * @param {Object} serverState - { x, y, z, rotY, hp, alive }
+     */
+    applyServerState(serverState) {
+        if (!serverState) return;
+
+        const dx = serverState.x - this.body.position.x;
+        const dy = serverState.y - (this.body.position.y - this._sphereRadius);
+        const dz = serverState.z - this.body.position.z;
+        const errorSq = dx * dx + dy * dy + dz * dz;
+
+        // Only snap if error is significant (> 0.5 units)
+        // This prevents micro-corrections from causing visible jitter
+        const THRESHOLD_SQ = 0.25; // 0.5^2
+
+        if (errorSq > THRESHOLD_SQ) {
+            this.body.position.x = serverState.x;
+            this.body.position.y = serverState.y + this._sphereRadius;
+            this.body.position.z = serverState.z;
+        }
+
+        // Update health from server (always authoritative)
+        if (serverState.hp !== undefined) {
+            this.health = serverState.hp;
+            this.damagePercent = Math.max(0, 100 - serverState.hp);
+        }
     }
 
     /**
@@ -332,6 +410,8 @@ export class PlayerController {
     die() {
         this.isAlive = false;
         this.isAttacking = false;
+        this.isShielding = false;
+        this.shieldTimer = 0;
         if (this._punchTimeout) clearTimeout(this._punchTimeout);
         if (this._hitFlashTimeout) {
             clearTimeout(this._hitFlashTimeout);

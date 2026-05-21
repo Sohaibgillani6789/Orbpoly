@@ -25,6 +25,9 @@ export class InputManager {
         this._barge = false;
 
         /** @private */
+        this._shield = false;
+
+        /** @private */
         this._isPrimaryDown = false;
 
         /** @private */
@@ -58,6 +61,9 @@ export class InputManager {
         this.keys[e.code] = true;
         if (e.code === 'Space' && !e.repeat) {
             this._jump = true;
+        }
+        if (e.code === 'KeyF' && !e.repeat) {
+            this._shield = true;
         }
     }
 
@@ -219,6 +225,16 @@ export class InputManager {
     }
 
     /**
+     * Consumes and returns the shield (F key) flag.
+     * @returns {boolean}
+     */
+    consumeShield() {
+        const val = this._shield;
+        this._shield = false;
+        return val;
+    }
+
+    /**
      * Consumes and returns the mouse movement delta.
      * @returns {{x: number, y: number}}
      */
@@ -242,6 +258,7 @@ export class InputManager {
             this._doubleAttack = false;
             this._jump = false;
             this._barge = false;
+            this._shield = false;
         }
     }
 

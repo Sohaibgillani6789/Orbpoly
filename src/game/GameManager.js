@@ -7,6 +7,8 @@ import { AnimationStateMachine } from './AnimationStateMachine.js';
 import { CombatSystem } from './CombatSystem.js';
 import { CollectibleOrb } from './CollectibleOrb.js';
 import { BotController } from './BotController.js';
+import { ShieldEffect } from './ShieldEffect.js';
+import { RemotePlayerController } from './RemotePlayerController.js';
 
 /**
  * Game state enum.
@@ -58,6 +60,14 @@ export class GameManager {
         this.botController = null;
         this.botScore = 0;
 
+        // --- Multiplayer ---
+        /** @type {import('./NetworkManager.js').NetworkManager|null} */
+        this.networkManager = null;
+        /** @type {Map<string, RemotePlayerController>} socketId → RemotePlayerController */
+        this.remotePlayers = new Map();
+        /** @type {boolean} True when in multiplayer mode */
+        this.isMultiplayer = false;
+
         // --- Camera state ---
         this.cameraYaw = 0;
 
@@ -84,6 +94,9 @@ export class GameManager {
         this._bargeGroup = this._initBargeVisuals();
         this._bargeTimer = 0;
         this._bargeDuration = 0.6;
+
+        // --- Shield Visuals (3D) ---
+        this._shieldEffect = new ShieldEffect(this.scene);
 
         // --- Hit Sparks (Object Pool) ---
         this._hitSparks = [];
@@ -337,6 +350,14 @@ export class GameManager {
             controller._onBargeCallback = () => {
                 this._executeBarge(controller);
             };
+
+            // Hook shield ability
+            controller._onShieldCallback = () => {
+                this._executeShield(controller);
+            };
+            controller._onShieldEndCallback = () => {
+                this._shieldEffect.deactivate();
+            };
         }
 
         const playerData = { id, name, controller, animSM };
@@ -417,14 +438,121 @@ export class GameManager {
         this.state = GameState.PLAYING;
         this.inputManager.enabled = true;
         
-        // Spawn first orb immediately
-        this.spawnCollectibleOrb();
+        // Spawn first orb immediately (single-player only)
+        if (!this.isMultiplayer) {
+            this.spawnCollectibleOrb();
+        }
         
         // Initialize HUD state
         this._updateHUD();
         this._updateLivesHUD();
         
-        console.log('🎮 Sumo Sky — FIGHT!');
+        console.log(`🎮 Sumo Sky — FIGHT! (${this.isMultiplayer ? 'MULTIPLAYER' : 'SINGLE PLAYER'})`);
+    }
+
+    // ─── MULTIPLAYER METHODS ─────────────────────────────
+
+    /**
+     * Attaches a NetworkManager for multiplayer mode.
+     * @param {import('./NetworkManager.js').NetworkManager} networkManager
+     */
+    setNetworkManager(networkManager) {
+        this.networkManager = networkManager;
+        this.isMultiplayer = true;
+        
+        if (this.localPlayer) {
+            this.localPlayer.id = networkManager.playerId;
+        }
+        
+        console.log('🌐 GameManager: Multiplayer mode enabled');
+    }
+
+    /**
+     * Adds a remote player to the scene.
+     * @param {string} playerId - Socket.io ID
+     * @param {string} characterClass
+     * @param {string} playerName
+     * @param {{ x: number, y: number, z: number }} position
+     * @returns {Promise<RemotePlayerController>}
+     */
+    async addRemotePlayer(playerId, characterClass, playerName, position) {
+        if (this.remotePlayers.has(playerId)) {
+            console.warn(`🌐 Remote player ${playerId} already exists`);
+            return this.remotePlayers.get(playerId);
+        }
+
+        const remote = new RemotePlayerController(
+            playerId, characterClass, playerName, this.scene
+        );
+
+        await remote.load(new THREE.Vector3(position.x, position.y, position.z));
+        this.remotePlayers.set(playerId, remote);
+
+        console.log(`🌐 Remote player added: ${playerName} (${characterClass})`);
+        return remote;
+    }
+
+    /**
+     * Removes a remote player from the scene.
+     * @param {string} playerId
+     */
+    removeRemotePlayer(playerId) {
+        const remote = this.remotePlayers.get(playerId);
+        if (!remote) return;
+
+        remote.dispose();
+        this.remotePlayers.delete(playerId);
+        console.log(`🌐 Remote player removed: ${playerId}`);
+    }
+
+    /**
+     * Gets a player's mesh by Socket.io ID.
+     * @param {string} playerId 
+     * @returns {THREE.Object3D|null}
+     */
+    _getPlayerMeshById(playerId) {
+        if (this.localPlayer && this.localPlayer.id === playerId) {
+            return this.localPlayer.controller.model;
+        }
+        const remote = this.remotePlayers.get(playerId);
+        if (remote) {
+            return remote.model;
+        }
+        return null;
+    }
+
+    /**
+     * Handles remote hit events from the server.
+     * @param {Object} hitData 
+     */
+    handleRemoteHit(hitData) {
+        const victimMesh = this._getPlayerMeshById(hitData.victimId);
+        const attackerMesh = this._getPlayerMeshById(hitData.attackerId);
+        
+        if (victimMesh && attackerMesh) {
+            const dx = victimMesh.position.x - attackerMesh.position.x;
+            const dz = victimMesh.position.z - attackerMesh.position.z;
+            const impactDir = new CANNON.Vec3(dx, 0, dz);
+            
+            this.triggerHitSpark(victimMesh, impactDir);
+        }
+    }
+
+    /**
+     * Handles remote respawn events from the server.
+     * @param {Object} respawnData 
+     */
+    handleRemoteRespawn(respawnData) {
+        if (this.localPlayer && this.localPlayer.id === respawnData.id) {
+            // Respawn local player physically
+            this.localPlayer.controller.respawn(respawnData.position, 0);
+        } else {
+            // Remote players teleport
+            const remote = this.remotePlayers.get(respawnData.id);
+            if (remote) {
+                remote.teleport(respawnData.position.x, respawnData.position.y, respawnData.position.z);
+            }
+        }
     }
 
     /**
@@ -446,8 +574,19 @@ export class GameManager {
             }
         }
 
-        // Phase 1b: Bot AI
-        if (this.botController && this.localPlayer) {
+        // Phase 1a: Send input to server (multiplayer)
+        if (this.isMultiplayer && this.networkManager && this.localPlayer) {
+            const ctrl = this.localPlayer.controller;
+            this.networkManager.sendInput({
+                moveX: ctrl._lastInputDir.x,
+                moveZ: ctrl._lastInputDir.z,
+                jump: ctrl._lastJumped,
+                animState: ctrl.animStateMachine ? ctrl.animStateMachine.currentState : 'idle',
+            });
+        }
+
+        // Phase 1b: Bot AI (single-player only)
+        if (!this.isMultiplayer && this.botController && this.localPlayer) {
             this.botController.update(
                 deltaTime,
                 this.localPlayer.controller,
@@ -458,19 +597,27 @@ export class GameManager {
         // Phase 2: Step physics simulation
         this.physicsWorld.step(deltaTime);
 
+        // Phase 2a: Server reconciliation (multiplayer) — correct local player toward server authority
+        if (this.isMultiplayer && this.networkManager && this.localPlayer) {
+            const serverState = this.networkManager.getLocalServerState();
+            if (serverState) {
+                this.localPlayer.controller.applyServerState(serverState);
+            }
+        }
+
         // Phase 3: Sync model positions from physics + update animations
         for (const player of this.players) {
             const ctrl = player.controller;
             ctrl.syncModel(deltaTime);
 
-            // Ring-out check (fell off island)
-            if (ctrl.isAlive && ctrl.body.position.y < this._ringOutY) {
-                this._handleRingOut(player);
-            }
-
-            // Health death check (damage >= 100 = health <= 0)
-            if (ctrl.isAlive && ctrl.health <= 0) {
-                this._handleHealthDeath(player);
+            // Ring-out check — server-authoritative in multiplayer
+            if (!this.isMultiplayer) {
+                if (ctrl.isAlive && ctrl.body.position.y < this._ringOutY) {
+                    this._handleRingOut(player);
+                }
+                if (ctrl.isAlive && ctrl.health <= 0) {
+                    this._handleHealthDeath(player);
+                }
             }
         }
 
@@ -540,6 +687,28 @@ export class GameManager {
             
             if (this._bargeTimer <= 0) {
                 this._bargeGroup.visible = false;
+            }
+        }
+
+        // Phase 8: Shield VFX animation
+        if (this._shieldEffect.isActive && this.localPlayer) {
+            const ctrl = this.localPlayer.controller;
+            this._shieldEffect.update(
+                deltaTime,
+                ctrl.model.position,
+                ctrl.model.rotation.y
+            );
+        }
+
+        // Phase 9: Multiplayer — update remote players from interpolation
+        if (this.isMultiplayer && this.networkManager) {
+            this.networkManager.updateInterpolation(deltaTime);
+            const remoteStates = this.networkManager.getRemoteStates();
+            for (const [playerId, state] of remoteStates) {
+                const remote = this.remotePlayers.get(playerId);
+                if (remote) {
+                    remote.update(deltaTime, state);
+                }
             }
         }
     }
@@ -767,6 +936,19 @@ export class GameManager {
     }
 
     /**
+     * Activates the shield VFX at the player's position.
+     * @private
+     */
+    _executeShield(controller) {
+        this._shieldEffect.activate(
+            controller.model.position,
+            controller.model.rotation.y,
+            controller.shieldDuration
+        );
+        console.log(`🛡️ SHIELD activated for ${controller.shieldDuration}s`);
+    }
+
+    /**
      * Triggers the 3D shockwave visual effect in the scene.
      * @private
      */
@@ -950,5 +1132,21 @@ export class GameManager {
             this.currentOrb.destroy();
             this.currentOrb = null;
         }
+
+        if (this._shieldEffect) {
+            this._shieldEffect.dispose();
+            this._shieldEffect = null;
+        }
+
+        // Cleanup multiplayer
+        for (const remote of this.remotePlayers.values()) {
+            remote.dispose();
+        }
+        this.remotePlayers.clear();
+        if (this.networkManager) {
+            this.networkManager.dispose();
+            this.networkManager = null;
+        }
+        this.isMultiplayer = false;
     }
 }
