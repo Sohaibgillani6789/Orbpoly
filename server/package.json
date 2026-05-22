@@ -5,6 +5,7 @@
   "description": "Authoritative multiplayer game server for Orbpoly",
   "main": "server.js",
   "scripts": {
+    "build": "echo 'No build step required'",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
