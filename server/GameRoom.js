@@ -72,12 +72,12 @@ const MAX_PLAYERS = 6;
 
 /** Spawn positions for up to 6 players (spread around platform) */
 const SPAWN_POSITIONS = [
-    { x: 0, y: 0, z: 0 },
-    { x: 8, y: 0, z: 8 },
-    { x: -8, y: 0, z: 8 },
-    { x: 8, y: 0, z: -8 },
-    { x: -8, y: 0, z: -8 },
-    { x: 0, y: 0, z: -10 },
+    { x: 0, y: 0, z: 18 },
+    { x: 0, y: 0, z: -18 },
+    { x: 18, y: 0, z: 0 },
+    { x: -18, y: 0, z: 0 },
+    { x: 13, y: 0, z: 13 },
+    { x: -13, y: 0, z: -13 },
 ];
 
 export class GameRoom {
@@ -112,6 +112,14 @@ export class GameRoom {
 
         /** @type {Array<Object>} History buffer for lag compensation */
         this.historyBuffer = [];
+
+        /**
+         * Delta compression: last-broadcast state per player.
+         * Map: socketId → { x, y, z, rotY, anim, hp, alive, seq }
+         * Used to compute per-field diffs so we only send what changed.
+         * @type {Map<string, Object>}
+         */
+        this._lastBroadcastState = new Map();
     }
 
     /**
@@ -420,7 +428,7 @@ export class GameRoom {
             // Respawn after 5 seconds
             setTimeout(() => {
                 if (!this.players.has(player.id)) return; // disconnected
-                const spawn = SPAWN_POSITIONS[0];
+                const spawn = SPAWN_POSITIONS[Math.floor(Math.random() * SPAWN_POSITIONS.length)];
                 player.position.x = spawn.x;
                 player.position.y = spawn.y;
                 player.position.z = spawn.z;
@@ -501,15 +509,27 @@ export class GameRoom {
 
     /** @private */
     _broadcastState() {
-        // Build flat state snapshot for minimal bandwidth
-        const snapshot = {
+        const now = Date.now();
+        // Send a full keyframe every 30 ticks (1Hz) to prevent drift
+        const isKeyframe = this.tickCount % 30 === 0;
+
+        // Build full state snapshot for history buffer (lag compensation needs full data)
+        const fullSnapshot = {
             tick: this.tickCount,
-            timestamp: Date.now(),
+            timestamp: now,
+            players: [],
+        };
+
+        // Build the delta snapshot for transmission
+        const deltaSnapshot = {
+            tick: this.tickCount,
+            timestamp: now,
+            kf: isKeyframe ? 1 : 0,  // keyframe flag
             players: [],
         };
 
         for (const player of this.players.values()) {
-            snapshot.players.push({
+            const curr = {
                 id: player.id,
                 x: Math.round(player.position.x * 100) / 100,
                 y: Math.round(player.position.y * 100) / 100,
@@ -519,16 +539,59 @@ export class GameRoom {
                 hp: player.health,
                 alive: player.isAlive,
                 seq: player.lastProcessedSeq,
-            });
+            };
+
+            // Always push full data to history buffer
+            fullSnapshot.players.push(curr);
+
+            if (isKeyframe) {
+                // Keyframe: send everything, reset baseline
+                deltaSnapshot.players.push(curr);
+                this._lastBroadcastState.set(player.id, { ...curr });
+            } else {
+                // Delta: only send fields that actually changed
+                const prev = this._lastBroadcastState.get(player.id);
+                if (!prev) {
+                    // First time seeing this player — send full
+                    deltaSnapshot.players.push(curr);
+                    this._lastBroadcastState.set(player.id, { ...curr });
+                } else {
+                    const delta = { id: player.id };
+                    let hasChanges = false;
+
+                    if (curr.x !== prev.x) { delta.x = curr.x; hasChanges = true; }
+                    if (curr.y !== prev.y) { delta.y = curr.y; hasChanges = true; }
+                    if (curr.z !== prev.z) { delta.z = curr.z; hasChanges = true; }
+                    if (curr.rotY !== prev.rotY) { delta.rotY = curr.rotY; hasChanges = true; }
+                    if (curr.anim !== prev.anim) { delta.anim = curr.anim; hasChanges = true; }
+                    if (curr.hp !== prev.hp) { delta.hp = curr.hp; hasChanges = true; }
+                    if (curr.alive !== prev.alive) { delta.alive = curr.alive; hasChanges = true; }
+                    // seq always changes when input is processed
+                    if (curr.seq !== prev.seq) { delta.seq = curr.seq; hasChanges = true; }
+
+                    if (hasChanges) {
+                        deltaSnapshot.players.push(delta);
+                    }
+                    // Update baseline
+                    this._lastBroadcastState.set(player.id, { ...curr });
+                }
+            }
         }
 
-        // Save to history buffer
-        this.historyBuffer.push(snapshot);
+        // Clean up baselines for disconnected players
+        for (const id of this._lastBroadcastState.keys()) {
+            if (!this.players.has(id)) {
+                this._lastBroadcastState.delete(id);
+            }
+        }
+
+        // Save full snapshot to history buffer (for lag compensation)
+        this.historyBuffer.push(fullSnapshot);
         if (this.historyBuffer.length > 60) { // 2 seconds at 30Hz
             this.historyBuffer.shift();
         }
 
-        this.io.to(this.roomId).emit('state', snapshot);
+        this.io.to(this.roomId).emit('state', deltaSnapshot);
     }
 
     /** @private — Returns initial player data for game_start */

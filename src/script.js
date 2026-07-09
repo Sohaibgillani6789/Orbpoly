@@ -14,6 +14,7 @@ import { noise3D, fbm3D } from './simplex3d.js';
 import { Tree } from '@dgreenheck/ez-tree';
 import { GameManager } from './game/GameManager.js';
 import { NetworkManager } from './game/NetworkManager.js';
+import { DustMotes } from './game/DustMotes.js';
 
 // All available character IDs for random bot selection
 const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'];
@@ -170,6 +171,9 @@ const grassUniforms = {
     // Mood tinting (time-of-day color shift)
     uMoodTint: { value: new THREE.Color(1.0, 1.0, 1.0) },       // Neutral white = no tint
     uMoodTintStrength: { value: 0.0 },                           // 0 = day (no tint)
+    // Exponential fog (synced from scene)
+    uFogColor: { value: new THREE.Color('#a8d8ff') },
+    uFogDensity: { value: 0.015 },
 };
 
 const grassMaterial = new THREE.ShaderMaterial({
@@ -323,8 +327,9 @@ async function loadCharacters(charId) {
 
     const { scene: model, animations = [] } = gltf;
 
-    // Position at center of island
-    model.position.set(0, 0, 0);
+    // Position at edge of island
+    model.position.set(0, 0, 18);
+    model.rotation.set(0, Math.PI, 0); // Face inwards
 
     model.traverse((child) => {
         if (child.isMesh) {
@@ -370,7 +375,7 @@ const skyUniforms = {
     uSkyColorBottom: { value: new THREE.Color('#67bdfe') },  // Bright sky blue (solid)
     uCloudColor: { value: new THREE.Color('#ffffff') },      // Pure white highlights
     uCloudShadowColor: { value: new THREE.Color('#e6f0fa') },// Very light blueish white for subtle volume
-    uCloudSpeed: { value: 0.008 },                            // Wind speed
+    uCloudSpeed: { value: 0.016 },                            // Wind speed
     uCloudDensity: { value: 0.68 },                           // Coverage threshold (0.5 = ~50% sky, matches reference)
     uSunIntensity: { value: 1.2 },                           // Sun brightness
     uNightBlend: { value: 0.0 },                              // 0=day/evening, 1=night (starfield)
@@ -388,72 +393,79 @@ const skyUniforms = {
  */
 const MOOD_PROFILES = {
     day: {
-        sunPosition:        new THREE.Vector3(0.4, 0.35, 0.8),
-        skyColorTop:        new THREE.Color('#3da5f5'),
-        skyColorBottom:     new THREE.Color('#67bdfe'),
-        cloudColor:         new THREE.Color('#ffffff'),
-        cloudShadowColor:   new THREE.Color('#e6f0fa'),
-        ambientColor:       new THREE.Color('#b9d5ff'),
-        ambientIntensity:   0.55,
-        directionalColor:   new THREE.Color(0xfff5e6),
+        sunPosition: new THREE.Vector3(0.4, 0.35, 0.8),
+        skyColorTop: new THREE.Color('#3da5f5'),
+        skyColorBottom: new THREE.Color('#67bdfe'),
+        cloudColor: new THREE.Color('#ffffff'),
+        cloudShadowColor: new THREE.Color('#e6f0fa'),
+        ambientColor: new THREE.Color('#b9d5ff'),
+        ambientIntensity: 0.55,
+        directionalColor: new THREE.Color('#fff8e8'),    // Warm pale gold daylight
         directionalIntensity: 2.2,
-        sunIntensity:       1.2,
-        nightBlend:         0.0,
-        clearColor:         new THREE.Color('#67bdfe'),
-        exposure:           0.85,
-        fogColor:           new THREE.Color('#a8d8ff'),
-        fogNear:            25,
-        fogFar:             80,
-        grassTint:          new THREE.Color(1.0, 1.0, 1.0),
-        grassTintStrength:  0.0,
-        cloudMix:           0.15,    // Normal cloud shadow on grass
+        sunIntensity: 1.2,
+        nightBlend: 0.0,
+        clearColor: new THREE.Color('#67bdfe'),
+        exposure: 0.85,
+        fogColor: new THREE.Color('#a8d8ff'),
+        fogDensity: 0.015,   // Visible haze at island edges
+        grassTint: new THREE.Color(1.0, 1.0, 1.0),
+        grassTintStrength: 0.0,
+        cloudMix: 0.15,    // Normal cloud shadow on grass
+        // Dust motes
+        moteColor: new THREE.Color('#fff8d0'),    // Sunlit gold pollen
+        moteOpacity: 0.26,
+        moteSpeed: 2.0,
     },
     evening: {
         // Golden hour — warm golden horizon, pale blue-grey upper sky, luminous clouds behind sun
-        // Refined to match realistic sunset photography with golden/yellow highlights and cool shadows
-        sunPosition:        new THREE.Vector3(0.8, 0.15, 0.4),
-        skyColorTop:        new THREE.Color('#8faac6'),    // Pale blue-grey upper sky (very natural)
-        skyColorBottom:     new THREE.Color('#ffe8b5'),    // Bright, soft golden-yellow (removes harsh dark orange)
-        cloudColor:         new THREE.Color('#fff7e6'),    // Bright golden-white highlights
-        cloudShadowColor:   new THREE.Color('#8a8279'),    // Soft warm grey-brown shadows (blocks light realistically)
-        ambientColor:       new THREE.Color('#a8b8c8'),    // Cool pale blue-grey ambient fill (keeps grass shadows green)
-        ambientIntensity:   0.65,                          // Boosted ambient to keep grass lit in shadow
-        directionalColor:   new THREE.Color('#fff2d4'),    // Warm white-golden directional sunlight
-        directionalIntensity: 2.5,                         // Stronger sun highlights on the grass tips
-        sunIntensity:       1.3,                           // Moderate — glow has own intensity scaling
-        nightBlend:         0.0,
-        clearColor:         new THREE.Color('#ffe8b5'),    // Horizon clear color
-        exposure:           0.90,                          // Bright high-quality exposure
-        fogColor:           new THREE.Color('#dfd5c3'),    // Soft desaturated warm sand/grey (natural light scattering)
-        fogNear:            20,
-        fogFar:             70,
-        grassTint:          new THREE.Color(1.02, 1.02, 0.95), // Retain fresh vibrant green (removes muddy red-orange shift)
-        grassTintStrength:  0.15,                          // Low strength lets natural green grass shine
-        cloudMix:           0.1,
+        sunPosition: new THREE.Vector3(0.8, 0.15, 0.4),
+        skyColorTop: new THREE.Color('#8faac6'),    // Pale blue-grey upper sky
+        skyColorBottom: new THREE.Color('#ffe8b5'),    // Bright soft golden-yellow
+        cloudColor: new THREE.Color('#fff7e6'),    // Bright golden-white highlights
+        cloudShadowColor: new THREE.Color('#8a8279'),    // Soft warm grey-brown shadows
+        ambientColor: new THREE.Color('#a8b8c8'),    // Cool pale blue-grey ambient fill
+        ambientIntensity: 0.65,
+        directionalColor: new THREE.Color('#ffcc66'),    // Rich amber/orange golden hour
+        directionalIntensity: 2.5,
+        sunIntensity: 1.3,
+        nightBlend: 0.0,
+        clearColor: new THREE.Color('#ffe8b5'),
+        exposure: 0.90,
+        fogColor: new THREE.Color('#dfd5c3'),    // Soft desaturated warm sand/grey
+        fogDensity: 0.017,   // Golden-hour atmospheric thickness
+        grassTint: new THREE.Color(1.02, 1.02, 0.95),
+        grassTintStrength: 0.15,
+        cloudMix: 0.1,
+        // Dust motes
+        moteColor: new THREE.Color('#ffe0a0'),    // Amber golden sparkle
+        moteOpacity: 0.26,
+        moteSpeed: 2.0,
     },
     night: {
-        // RDR2-quality moonlit night — objects clearly visible, cool blue tint
-        // Moon direction points UP and to the side (visible in sky)
-        sunPosition:        new THREE.Vector3(0.3, 0.6, -0.5),
-        skyColorTop:        new THREE.Color('#0a0f2e'),    // Deep indigo (not black)
-        skyColorBottom:     new THREE.Color('#1a1a40'),    // Slightly lighter at horizon
-        cloudColor:         new THREE.Color('#4a5a70'),    // Moonlit cloud edges
-        cloudShadowColor:   new THREE.Color('#1a2030'),    // Visible cloud shadow
-        ambientColor:       new THREE.Color('#3a4568'),    // Brighter blue ambient — enhanced moonlight fill
-        ambientIntensity:   0.85,                          // Boosted for brighter moonlit scene
-        directionalColor:   new THREE.Color('#99aacc'),    // Brighter cool moonlight
-        directionalIntensity: 2.2,                         // Strong moonlight on surfaces
-        sunIntensity:       0.5,
-        nightBlend:         1.0,
-        clearColor:         new THREE.Color('#1a1a40'),
-        exposure:           0.88,                          // Brighter overall exposure
-        fogColor:           new THREE.Color('#141428'),    // Visible blue-purple mist
-        fogNear:            20,
-        fogFar:             70,
-        grassTint:          new THREE.Color(0.55, 0.65, 0.9), // Cool moonlit blue
-        grassTintStrength:  0.5,
-        cloudMix:           0.02,    // Almost no cloud shadow at night (prevents muddy grass)
-        moonGlow:           1.0,     // Full moon glow in sky
+        // RDR2-quality moonlit night — cool blue tint, clearly visible
+        sunPosition: new THREE.Vector3(0.3, 0.6, -0.5),
+        skyColorTop: new THREE.Color('#0a0f2e'),    // Deep indigo
+        skyColorBottom: new THREE.Color('#1a1a40'),    // Slightly lighter at horizon
+        cloudColor: new THREE.Color('#4a5a70'),    // Moonlit cloud edges
+        cloudShadowColor: new THREE.Color('#1a2030'),    // Visible cloud shadow
+        ambientColor: new THREE.Color('#3a4568'),    // Brighter blue ambient
+        ambientIntensity: 0.85,
+        directionalColor: new THREE.Color('#8899cc'),    // Cool steel-blue moonlight
+        directionalIntensity: 2.2,
+        sunIntensity: 0.5,
+        nightBlend: 1.0,
+        clearColor: new THREE.Color('#1a1a40'),
+        exposure: 0.88,
+        fogColor: new THREE.Color('#141428'),    // Blue-purple mist
+        fogDensity: 0.018,   // Dense moonlit mist
+        grassTint: new THREE.Color(0.55, 0.65, 0.9), // Cool moonlit blue
+        grassTintStrength: 0.5,
+        cloudMix: 0.02,
+        moonGlow: 1.0,
+        // Dust motes
+        moteColor: new THREE.Color('#aabbee'),    // Dim blue ambient motes
+        moteOpacity: 0.26,
+        moteSpeed: 2.0,
     }
 };
 
@@ -520,7 +532,12 @@ skyMesh.updateMatrix();
 scene.add(skyMesh);
 
 const gui = new GUI();
-gui.hide();
+gui.hide(); // Toggle with H key
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey) {
+        gui._hidden ? gui.show() : gui.hide();
+    }
+});
 
 // Sky Debug UI
 const skyFolder = gui.addFolder('Sky & Clouds');
@@ -751,8 +768,11 @@ const rockUniforms = {
     uTexScale: { value: 0.03 },         // triplanar UV tiling increased for more detail
     uMossBlend: { value: 0.15 },        // moss extends top 15%
     uMossColor: { value: new THREE.Color(0x5a7a3a) },   // mossy green (matches texture)
-    uRockTintDark: { value: new THREE.Color(0x6a6055) }, // subtle weathered darkening (was too black)
-    uRockDepth: { value: ROCK_DEPTH }
+    uRockTintDark: { value: new THREE.Color(0x6a6055) }, // subtle weathered darkening
+    uRockDepth: { value: ROCK_DEPTH },
+    // Exponential fog (synced from scene)
+    uFogColor: { value: new THREE.Color('#a8d8ff') },
+    uFogDensity: { value: 0.015 },
 };
 
 const rockMaterial = new THREE.ShaderMaterial({
@@ -937,8 +957,38 @@ rockFolder.addColor(rockColors, 'moss').name('Moss Color').onChange(v => rockUni
 rockFolder.addColor(rockColors, 'darkTint').name('Rock Dark Tint').onChange(v => rockUniforms.uRockTintDark.value.setHex(v));
 rockFolder.open();
 
-
-
+// ── Atmosphere Debug UI ──
+// Uses proxy objects because lil-gui needs direct property access
+// (sceneFog and dustMotes uniforms are updated via onChange callbacks)
+const atmosphereFolder = gui.addFolder('Atmosphere');
+const fogProxy = {
+    density: 0.015,
+    color: 0xa8d8ff,
+    moteOpacity: 0.26,
+    moteSpeed: 2.0,
+};
+atmosphereFolder.add(fogProxy, 'density').min(0.0).max(0.15).step(0.001).name('Fog Density').onChange(v => {
+    sceneFog.density = v;
+    grassUniforms.uFogDensity.value = v;
+    rockUniforms.uFogDensity.value = v;
+    // Also update the current mood profile target so lerp doesn't fight the GUI
+    MOOD_PROFILES[targetMoodKey].fogDensity = v;
+});
+atmosphereFolder.addColor(fogProxy, 'color').name('Fog Color').onChange(v => {
+    sceneFog.color.setHex(v);
+    grassUniforms.uFogColor.value.setHex(v);
+    rockUniforms.uFogColor.value.setHex(v);
+    MOOD_PROFILES[targetMoodKey].fogColor.setHex(v);
+});
+atmosphereFolder.add(fogProxy, 'moteOpacity').min(0.0).max(1.5).step(0.01).name('Dust Opacity').onChange(v => {
+    dustMotes._uniforms.uOpacity.value = v;
+    MOOD_PROFILES[targetMoodKey].moteOpacity = v;
+});
+atmosphereFolder.add(fogProxy, 'moteSpeed').min(0.0).max(2.0).step(0.01).name('Dust Speed').onChange(v => {
+    dustMotes._speedMul = v;
+    MOOD_PROFILES[targetMoodKey].moteSpeed = v;
+});
+atmosphereFolder.open();
 
 /**
  * Lights
@@ -962,8 +1012,18 @@ scene.add(moonLight)
 /**
  * Atmospheric Fog — subtle depth haze that transitions with mood
  */
-const sceneFog = new THREE.Fog('#a8d8ff', 25, 80); // Light blue day haze — closer range for visible effect
+const sceneFog = new THREE.FogExp2('#a8d8ff', 0.015); // Exponential squared fog — visible at island edges
 scene.fog = sceneFog;
+
+// ── Ambient Dust Motes — atmospheric depth particles ──
+const dustMotes = new DustMotes(scene, {
+    count: 800,
+    radius: 30,
+    heightMin: -5,
+    heightMax: 12,
+});
+// Pre-allocated scratch color for dust mote mood lerping (zero-GC)
+const _moteScratchColor = new THREE.Color();
 
 /**
  * Sizes
@@ -1102,6 +1162,9 @@ const tick = () => {
     // ☁️ Animate Sky
     skyUniforms.uTime.value = elapsedTime;
 
+    // ✨ Update ambient dust motes
+    dustMotes.update(deltaTime, elapsedTime);
+
     // ============================================================
     // MOOD TRANSITION SYSTEM — smooth lerp toward target mood
     // ============================================================
@@ -1144,20 +1207,33 @@ const tick = () => {
         renderer.setClearColor(_scratchColor);
         renderer.toneMappingExposure = THREE.MathUtils.lerp(renderer.toneMappingExposure, target.exposure, lerpFactor);
 
-        // --- Fog transition ---
+        // --- Fog transition (FogExp2 density + color) ---
         if (sceneFog) {
             sceneFog.color.lerp(target.fogColor, lerpFactor);
-            sceneFog.near = THREE.MathUtils.lerp(sceneFog.near, target.fogNear, lerpFactor);
-            sceneFog.far = THREE.MathUtils.lerp(sceneFog.far, target.fogFar, lerpFactor);
+            sceneFog.density = THREE.MathUtils.lerp(sceneFog.density, target.fogDensity, lerpFactor);
         }
 
+        // --- Sync fog uniforms to custom shaders ---
+        grassUniforms.uFogColor.value.copy(sceneFog.color);
+        grassUniforms.uFogDensity.value = sceneFog.density;
+        rockUniforms.uFogColor.value.copy(sceneFog.color);
+        rockUniforms.uFogDensity.value = sceneFog.density;
+
         // --- Moon sky glow ---
-        // Drive sky-shader moon glow (smooth radial light scatter, no geometry)
         const targetGlow = target.moonGlow || 0.0;
         skyUniforms.uMoonGlow.value = THREE.MathUtils.lerp(skyUniforms.uMoonGlow.value, targetGlow, lerpFactor);
 
         // --- Grass cloud shadow mix ---
         grassUniforms.uCloudMix.value = THREE.MathUtils.lerp(grassUniforms.uCloudMix.value, target.cloudMix, lerpFactor);
+
+        // --- Dust motes mood transition ---
+        if (target.moteColor) {
+            _moteScratchColor.copy(dustMotes._uniforms.uColor.value);
+            _moteScratchColor.lerp(target.moteColor, lerpFactor);
+            const moteOpacity = THREE.MathUtils.lerp(dustMotes._uniforms.uOpacity.value, target.moteOpacity, lerpFactor);
+            const moteSpeed = THREE.MathUtils.lerp(dustMotes._speedMul, target.moteSpeed, lerpFactor);
+            dustMotes.setMood(_moteScratchColor, moteOpacity, moteSpeed);
+        }
 
         // Track current mood when transition is effectively complete
         const dist = skyUniforms.uSkyColorTop.value.getHex() === target.skyColorTop.getHex();
@@ -1238,9 +1314,9 @@ const cameraAnimation = {
     startTime: 0,
     duration: 6000,
     startPos: new THREE.Vector3(25, -27, 40),
-    endPos: new THREE.Vector3(28, 6.0, -8),
+    endPos: new THREE.Vector3(0, 6.5, 26.66),   // Behind player spawn at (0,0,18)
     startTarget: new THREE.Vector3(0, -15, 0),
-    endTarget: new THREE.Vector3(0, 1, 0)
+    endTarget: new THREE.Vector3(0, 1.5, 18)     // Player upper body at spawn
 };
 
 // ============================================================
@@ -1323,7 +1399,7 @@ async function loadBotCharacter(charId) {
         });
 
         const { scene: model, animations = [] } = gltf;
-        model.position.set(8, 0, 8); // Offset from player spawn
+        model.position.set(0, 0, -18); // Opposite edge from player spawn
 
         model.traverse((child) => {
             if (child.isMesh) {
@@ -1432,6 +1508,7 @@ function initializeScene() {
     }
 
 
+
     // Handle character card clicks — just select the clicked card
     document.querySelectorAll('.char-card').forEach((card, idx) => {
         card.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -1455,9 +1532,9 @@ function initializeScene() {
     // Single-player start game flow
     function startGame(selectedCharacter) {
         if (!uiRoot || uiRoot.classList.contains('is-exiting')) return;
-        
+
         console.log(`⚔️ Singleplayer selected: ${selectedCharacter}`);
-        
+
         // Trigger exit animation
         uiRoot.classList.remove('is-visible');
         uiRoot.classList.add('is-exiting');
@@ -1466,11 +1543,39 @@ function initializeScene() {
         setTimeout(async () => {
             uiRoot.style.display = 'none';
 
+            // Disable follow mode during async loading to prevent the camera
+            // from following the player with a stale cameraTheta (Math.PI)
+            // which would place it in front of the player.
+            cameraFollowMode = false;
+
             const charData = await loadCharacters(selectedCharacter);
+
+            // Pre-compute the correct camera yaw BEFORE initGameManager,
+            // because initGameManager has an async bot-loading await during
+            // which the render loop would use a stale theta value.
+            // Player spawns at (0,0,18) facing Math.PI (toward -Z/center).
+            // theta=0 places camera at +Z relative to player = behind them.
+            const spawnPos = charData.model.position;
+            cameraTheta = Math.atan2(spawnPos.x, spawnPos.z);
+
             await initGameManager(selectedCharacter, charData);
 
             if (gameManager) {
                 gameManager.start();
+
+                // Snap camera to correct position behind player instantly
+                // (no lerp) so the first visible frame is already correct.
+                const playerPos = gameManager.getLocalPlayerPosition();
+                if (playerPos) {
+                    const camX = playerPos.x + cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+                    const camY = playerPos.y + cameraRadius * Math.cos(cameraPhi) + 1.5;
+                    const camZ = playerPos.z + cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+                    camera.position.set(camX, camY, camZ);
+                    controls.target.set(playerPos.x, playerPos.y + 1.5, playerPos.z);
+                }
+
+                // Re-enable follow mode now that camera is correctly positioned
+                cameraFollowMode = true;
 
                 // Show combat HUD
                 const combatHud = document.getElementById('combat-hud');
@@ -1495,6 +1600,11 @@ function initializeScene() {
         btnPlayOffline.addEventListener('pointerdown', (e) => e.stopPropagation());
         btnPlayOffline.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            }
             startGame(getSelectedCharacter());
         });
     }
@@ -1511,7 +1621,7 @@ function initializeScene() {
 
     // ── MULTIPLAYER LOBBY FLOW ──────────────────────────────
     // Server URL: dynamically resolve for local dev, or fallback to production URL
-    const MP_SERVER_URL = import.meta.env.VITE_MP_SERVER_URL || 
+    const MP_SERVER_URL = import.meta.env.VITE_MP_SERVER_URL ||
         (import.meta.env.DEV ? `http://${window.location.hostname}:3001` : 'https://orbpoly-server.onrender.com');
 
     let mpNetworkManager = null;
@@ -1649,14 +1759,14 @@ function initializeScene() {
                         }
                     }
                 });
-                
+
                 mpNetworkManager.onPlayerRingout((data) => {
                     if (gameManager && data.id === mpNetworkManager.playerId) {
                         gameManager._triggerScreenShake(0.5, 0.4);
                         gameManager._triggerVignette();
                     }
                 });
-                
+
                 mpNetworkManager.onPlayerRespawn((data) => {
                     if (gameManager) {
                         gameManager.handleRemoteRespawn(data);
@@ -1673,6 +1783,17 @@ function initializeScene() {
                 });
 
                 gameManager.start();
+
+                // Snap camera behind the player instantly (no lerp)
+                const playerPos = gameManager.getLocalPlayerPosition();
+                if (playerPos) {
+                    cameraTheta = Math.atan2(playerPos.x, playerPos.z);
+                    const camX = playerPos.x + cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+                    const camY = playerPos.y + cameraRadius * Math.cos(cameraPhi) + 1.5;
+                    const camZ = playerPos.z + cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+                    camera.position.set(camX, camY, camZ);
+                    controls.target.set(playerPos.x, playerPos.y + 1.5, playerPos.z);
+                }
 
                 // Show combat HUD
                 const combatHud = document.getElementById('combat-hud');
@@ -1734,27 +1855,33 @@ function initializeScene() {
         });
 
         mpNetworkManager.onError((err) => {
-            if (status) status.textContent = `Error: ${err.message}`;
+            // Check if it's a technical connection error or a game logic error
+            if (err instanceof Error || err.message.includes('xhr') || err.message.includes('connect')) {
+                if (status) status.textContent = `Connection lost. Searching for servers...`;
+            } else {
+                // Game logic error (e.g., "Room not found")
+                if (status) status.textContent = err.message;
+            }
         });
 
         mpNetworkManager.onDisconnect((reason) => {
-            if (status) status.textContent = `Disconnected: ${reason}`;
+            if (status) status.textContent = `Connection lost.`;
             if (actions) actions.style.display = 'none';
         });
 
         mpNetworkManager.onReconnectAttempt((attempt) => {
-            if (status) status.textContent = `Reconnecting... (Attempt ${attempt})`;
+            if (status) status.textContent = `Searching for servers... (Attempt ${attempt})`;
         });
 
         mpNetworkManager.onReconnect(() => {
-            if (status) status.textContent = 'Reconnected!';
+            if (status) status.textContent = 'Connected!';
             if (actions) actions.style.display = 'flex';
         });
 
         const retryBtn = document.getElementById('mp-retry-btn');
         const handleConnect = async () => {
             if (retryBtn) retryBtn.style.display = 'none';
-            if (status) status.textContent = 'Connecting to server...';
+            if (status) status.textContent = 'Searching for servers...';
 
             // Show "waking up" message if connection takes > 2.5s (Render free tier cold start)
             const wakingTimeout = setTimeout(() => {
@@ -1768,7 +1895,7 @@ function initializeScene() {
                 if (actions) actions.style.display = 'flex';
             } catch (err) {
                 clearTimeout(wakingTimeout);
-                if (status) status.textContent = `Failed to connect: ${err.message}`;
+                if (status) status.textContent = `Unable to reach servers. Please try again.`;
                 if (retryBtn) retryBtn.style.display = 'block';
             }
         };
@@ -1880,6 +2007,7 @@ function disposeScene() {
 
     renderer.dispose();
     controls.dispose();
+    dustMotes.dispose();
     gui.destroy();
     console.log('🧹 Scene disposed — GPU memory released');
 }

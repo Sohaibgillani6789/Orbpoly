@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:all": "concurrently \"npm run dev\" \"node --watch server/server.js\"",
+    "dev": "concurrently \"vite\" \"node --watch server/server.js\"",
+    "dev:all": "concurrently \"vite\" \"node --watch server/server.js\"",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vercel --prod"
@@ -26,6 +26,7 @@
     "cannon-es": "^0.20.0",
     "lil-gui": "^0.19.0",
     "socket.io-client": "^4.8.3",
+    "socket.io-msgpack-parser": "^3.0.2",
     "three": "^0.158.0"
   }
 }

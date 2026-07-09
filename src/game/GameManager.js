@@ -413,9 +413,9 @@ export class GameManager {
             lives: 2
         });
 
-        // Spawn bot at offset position
-        controller.body.position.set(8, 1, 8);
-        model.position.set(8, 0, 8);
+        // Spawn bot at opposite edge position
+        controller.body.position.set(0, 1, -18);
+        model.position.set(0, 0, -18);
 
         this.combatSystem.registerPlayer(controller);
 
@@ -1063,7 +1063,8 @@ export class GameManager {
         if (player.controller.lives > 0) {
             // Respawn after delay — restore health to what it was before the fall
             setTimeout(() => {
-                player.controller.respawn({ x: 0, y: 0, z: 0 }, savedDamage);
+                const spawnPos = (player === this.localPlayer) ? { x: 0, y: 0, z: 18 } : { x: 0, y: 0, z: -18 };
+                player.controller.respawn(spawnPos, savedDamage);
                 this._updateHUD();
             }, this._respawnDelay);
         } else {

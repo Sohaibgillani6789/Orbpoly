@@ -11,6 +11,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="./char-select.css">
 </head>
 <body>
     <div class="loader-overlay" id="loading-overlay">
@@ -82,153 +83,98 @@
 
 
     <!-- ═══════════════════════════════════════════════════════
-         CHARACTER SELECTION OVERLAY — Horizontal Card Scroller
+         CHARACTER SELECTION OVERLAY — Left Panel Layout
          Triggered by .is-visible class after camera intro
          ═══════════════════════════════════════════════════════ -->
     <div id="ui-root" class="char-select">
-      <div class="char-select__backdrop"></div>
+      <!-- Full-screen background image -->
+      <div class="char-select__bg-image"></div>
 
-      <header class="char-select__header">
-        <span class="char-select__subtitle">CHOOSE YOUR</span>
-        <h1 class="char-select__title">Champion</h1>
-        <div class="char-select__title-line"></div>
-      </header>
+      <!-- Left-aligned vertical panel -->
+      <div class="char-select__left-panel">
 
-      <div class="char-select__layout">
-        <!-- Vertical Controls Guide Plane -->
-        <aside class="char-select__controls-guide">
-          <div class="controls-guide__bg"></div>
-          <h3 class="controls-guide__title">GAME CONTROLS</h3>
-          <ul class="controls-guide__list">
-            <li>
-              <div class="keys-wrap">
-                <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-              </div>
-              <span>Move</span>
-            </li>
-            <li>
-              <div class="keys-wrap"><kbd class="kbd-wide">SPACE</kbd></div>
-              <span>Jump</span>
-            </li>
-            <li>
-              <div class="keys-wrap"><kbd class="kbd-wide">RMB</kbd></div>
-              <span>Attack</span>
-            </li>
-            <li>
-              <div class="keys-wrap"><kbd class="kbd-wide">LMB</kbd></div>
-              <span>Attack 2</span>
-            </li>
-            <li>
-              <div class="keys-wrap"><kbd class="kbd-wide">MMB</kbd></div>
-              <span>Shock</span>
-            </li>
-          </ul>
-        </aside>
-
-        <div class="char-select__carousel-wrap">
-        <!-- Fade edges -->
-        <div class="char-select__fade char-select__fade--left"></div>
-        <div class="char-select__fade char-select__fade--right"></div>
-
-        <!-- Arrow navigation -->
-        <button class="char-select__arrow char-select__arrow--left" id="cs-arrow-left" aria-label="Previous">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="char-select__arrow char-select__arrow--right" id="cs-arrow-right" aria-label="Next">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
-        </button>
-
-        <div class="char-select__track" id="cs-track">
-          <article class="char-card is-active" style="--i:0" data-character="warrior">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:200"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">WARRIOR</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-
-          <article class="char-card" style="--i:1" data-character="wizard">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:260"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">WIZARD</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-
-          <article class="char-card" style="--i:2" data-character="rogue">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:150"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">ROGUE</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-
-          <article class="char-card" style="--i:3" data-character="ranger">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:120"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">RANGER</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-
-          <article class="char-card" style="--i:4" data-character="monk">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:40"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">MONK</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-
-          <article class="char-card" style="--i:5" data-character="cleric">
-            <div class="char-card__bg">
-              <div class="char-card__portrait-img" style="--card-hue:180"></div>
-              <div class="char-card__shine"></div>
-            </div>
-            <div class="char-card__content">
-              <div class="char-card__info">
-                <h2 class="player-name">CLERIC</h2>
-                <div class="char-card__accent-line"></div>
-              </div>
-            </div>
-          </article>
-        </div>
-        
-        <!-- Global Action Buttons -->
-        <div class="char-select__actions">
+        <!-- Menu Buttons (top) -->
+        <div class="char-select__menu-buttons">
           <button id="btn-play-offline" class="global-action-btn">PLAY OFFLINE</button>
           <button id="btn-play-multiplayer" class="global-action-btn global-action-btn--mp">MULTIPLAYER</button>
         </div>
 
+        <!-- Character Card Area -->
+        <div class="char-select__card-area">
+          <!-- Arrow navigation -->
+          <button class="char-select__arrow char-select__arrow--left" id="cs-arrow-left" aria-label="Previous">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="char-select__arrow char-select__arrow--right" id="cs-arrow-right" aria-label="Next">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+          </button>
+
+          <div class="char-select__track" id="cs-track">
+            <article class="char-card is-active" style="--i:0" data-character="warrior">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:200"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">WARRIOR</h2>
+                </div>
+              </div>
+            </article>
+
+            <article class="char-card" style="--i:1" data-character="wizard">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:260"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">WIZARD</h2>
+                </div>
+              </div>
+            </article>
+
+            <article class="char-card" style="--i:2" data-character="rogue">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:150"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">ROGUE</h2>
+                </div>
+              </div>
+            </article>
+
+            <article class="char-card" style="--i:3" data-character="ranger">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:120"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">RANGER</h2>
+                </div>
+              </div>
+            </article>
+
+            <article class="char-card" style="--i:4" data-character="monk">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:40"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">MONK</h2>
+                </div>
+              </div>
+            </article>
+
+            <article class="char-card" style="--i:5" data-character="cleric">
+              <div class="char-card__border-glow"></div>
+              <div class="char-card__inner">
+                <div class="char-card__portrait-img" style="--card-hue:180"></div>
+                <div class="char-card__content">
+                  <h2 class="player-name">CLERIC</h2>
+                </div>
+              </div>
+            </article>
+          </div>
         </div>
+
+
+
       </div>
-
-
-
     </div>
 
     <!-- ═══════════════════════════════════════════════════════

@@ -280,26 +280,52 @@ export class PlayerController {
      * Applies authoritative server state to the local player's physics body.
      * Called during reconciliation when a server snapshot arrives.
      *
-     * Only corrects if the error exceeds a threshold to avoid micro-jitter.
+     * Uses a three-tier blending strategy:
+     *   1. Dead zone (error < 0.05 units): ignore — sub-pixel noise, not worth touching.
+     *   2. Smooth blend (0.05 ≤ error < 3.0 units): exponential lerp toward server.
+     *      The blend rate scales with error magnitude so small drifts correct
+     *      slowly (invisible to the player) and medium errors correct within ~200ms.
+     *   3. Hard snap (error ≥ 3.0 units): teleport immediately — likely a respawn,
+     *      ring-out reset, or severe desync that can't be smoothed visually.
+     *
+     * This replaces the old binary threshold approach which caused visible jitter
+     * on every correction frame.
      *
      * @param {Object} serverState - { x, y, z, rotY, hp, alive }
      */
     applyServerState(serverState) {
         if (!serverState) return;
 
+        // Server sends model-space Y; physics body Y = model Y + sphereRadius
+        const serverBodyY = serverState.y + this._sphereRadius;
+
         const dx = serverState.x - this.body.position.x;
-        const dy = serverState.y - (this.body.position.y - this._sphereRadius);
+        const dy = serverBodyY - this.body.position.y;
         const dz = serverState.z - this.body.position.z;
         const errorSq = dx * dx + dy * dy + dz * dz;
 
-        // Only snap if error is significant (> 0.5 units)
-        // This prevents micro-corrections from causing visible jitter
-        const THRESHOLD_SQ = 0.25; // 0.5^2
+        // Tier 1: Dead zone — sub-pixel noise, skip entirely
+        const DEAD_ZONE_SQ = 0.0025; // 0.05^2
+        // Tier 3: Hard snap threshold — teleport events
+        const SNAP_THRESHOLD_SQ = 9.0; // 3.0^2
 
-        if (errorSq > THRESHOLD_SQ) {
-            this.body.position.x = serverState.x;
-            this.body.position.y = serverState.y + this._sphereRadius;
-            this.body.position.z = serverState.z;
+        if (errorSq > DEAD_ZONE_SQ) {
+            if (errorSq >= SNAP_THRESHOLD_SQ) {
+                // Tier 3: Hard snap — too far to blend smoothly
+                this.body.position.x = serverState.x;
+                this.body.position.y = serverBodyY;
+                this.body.position.z = serverState.z;
+            } else {
+                // Tier 2: Smooth exponential blend
+                // Blend rate scales with error: tiny drift → slow, visible drift → fast
+                // At error=0.5 → t≈0.15 (smooth), at error=2.0 → t≈0.45 (snappy)
+                const error = Math.sqrt(errorSq);
+                const t = Math.min(0.1 + error * 0.18, 0.5);
+
+                this.body.position.x += dx * t;
+                this.body.position.y += dy * t;
+                this.body.position.z += dz * t;
+            }
         }
 
         // Update health from server (always authoritative)
@@ -447,6 +473,10 @@ export class PlayerController {
         this.body.velocity.set(0, 0, 0);
         this.body.angularVelocity.set(0, 0, 0);
         this.body.force.set(0, 0, 0);
+
+        // Face towards the center of the arena
+        const angleToCenter = Math.atan2(-position.x, -position.z);
+        this.model.rotation.set(0, angleToCenter, 0);
 
         this.animStateMachine.forceUnlock();
         this.animStateMachine.setState(AnimState.IDLE);

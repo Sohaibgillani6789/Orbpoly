@@ -5,6 +5,7 @@ varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
 varying vec3 vViewDir;
 varying float vHeightNorm;  // 0 = top (grass edge), 1 = bottom tip
+varying float vFogDepth;    // camera-space depth for exponential fog
 
 uniform float uRockDepth;
 
@@ -23,5 +24,8 @@ void main() {
     // Normalized vertical position: 0 at top (Y=0), 1 at bottom tip (Y=-uRockDepth)
     vHeightNorm = clamp(-position.y / uRockDepth, 0.0, 1.0);
 
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vFogDepth = -mvPosition.z;
+
+    gl_Position = projectionMatrix * mvPosition;
 }

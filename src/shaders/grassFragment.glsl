@@ -15,6 +15,10 @@ uniform float uHueVariation;
 uniform vec3 uMoodTint;          // Color multiplier (1,1,1 = neutral day)
 uniform float uMoodTintStrength; // 0.0 = no tint, 1.0 = full tint
 
+// Exponential fog (FogExp2)
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+
 varying vec2 vUv;
 varying vec2 cloudUV;
 varying vec3 vColor;
@@ -24,6 +28,7 @@ varying vec3 vWorldNormal;
 varying vec2 vGrassVariation;
 varying vec3 vAmbientInfluence;
 varying float vNdotL;
+varying float vFogDepth;
 
 void main() {
     // ── Base color from texture ──
@@ -84,6 +89,12 @@ void main() {
     // Slightly boost greens, desaturate very slightly for natural look
     float luma = dot(color, vec3(0.299, 0.587, 0.114));
     color = mix(vec3(luma), color, 1.08); // tiny saturation boost
+
+    // ── Exponential squared fog (Beer-Lambert) ──
+    // fogFactor approaches 1.0 at distance — smooth natural falloff
+    float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
+    fogFactor = clamp(fogFactor, 0.0, 1.0);
+    color = mix(color, uFogColor, fogFactor);
 
     // Final output
     gl_FragColor = vec4(color, 1.0);

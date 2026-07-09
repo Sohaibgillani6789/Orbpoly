@@ -8,6 +8,7 @@ varying vec3 vWorldPosition;
 varying vec3 vWorldNormal;
 varying vec3 vViewDir;
 varying float vHeightNorm;
+varying float vFogDepth;
 
 // ── Textures ──────────────────────────────────────────────────────────────────
 uniform sampler2D uColorMap;      // sRGB albedo
@@ -25,6 +26,10 @@ uniform float uMossBlend;
 uniform vec3  uMossColor;
 uniform vec3  uRockTintDark;
 uniform float uRockDepth;
+
+// Exponential fog (FogExp2)
+uniform vec3 uFogColor;
+uniform float uFogDensity;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRIPLANAR COLOR SAMPLE
@@ -168,8 +173,12 @@ void main() {
     // ── Final composite ──
     vec3 color = ambient + Lo + fillLight + (skyLight * albedo) + rimLight;
 
+    // ── Exponential squared fog (Beer-Lambert) ──
+    float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * vFogDepth * vFogDepth);
+    fogFactor = clamp(fogFactor, 0.0, 1.0);
+    color = mix(color, uFogColor, fogFactor);
+
     // Very mild gamma-like brightening to prevent crushing blacks
-    // No Reinhard tonemapping — let the renderer handle that
     color = pow(color, vec3(0.95));
 
     // Clamp to valid range

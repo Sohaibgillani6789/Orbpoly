@@ -36,6 +36,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { GameRoom, RoomState } from './GameRoom.js';
+import * as customParser from 'socket.io-msgpack-parser';
 
 // ─── CONFIG ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
@@ -84,6 +85,8 @@ const io = new Server(httpServer, {
         origin: FRONTEND_URL,
         methods: ['GET', 'POST'],
     },
+    // Binary serialization — ~40% smaller packets vs JSON
+    parser: customParser,
     // Performance tuning
     pingTimeout: 10000,
     pingInterval: 5000,

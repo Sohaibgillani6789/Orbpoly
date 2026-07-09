@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import * as customParser from 'socket.io-msgpack-parser';
 
 /**
  * NetworkManager — Client-side Socket.io networking layer.
@@ -68,6 +69,15 @@ export class NetworkManager {
         /** @type {number} Server time estimate (ms) */
         this._serverTimeOffset = 0;
 
+        /**
+         * Delta compression accumulator.
+         * Stores the last-known full state per player so incoming deltas
+         * can be merged to reconstruct the complete snapshot.
+         * Map: playerId → { id, x, y, z, rotY, anim, hp, alive, seq }
+         * @type {Map<string, Object>}
+         */
+        this._knownPlayerStates = new Map();
+
         /** @type {number|null} */
         this._heartbeatInterval = null;
 
@@ -111,6 +121,7 @@ export class NetworkManager {
             this.connectionState = 'connecting';
 
             this.socket = io(this.serverUrl, {
+                parser: customParser,
                 transports: ['polling', 'websocket'], // Allow polling fallback
                 reconnection: true,
                 reconnectionAttempts: 5,
@@ -322,7 +333,13 @@ export class NetworkManager {
 
     // ─── STATE HANDLING ───────────────────────────────────
 
-    /** @private */
+    /**
+     * Handles an incoming state snapshot from the server.
+     * Supports delta compression: if the snapshot is not a keyframe,
+     * each player entry may contain only the fields that changed.
+     * We merge deltas onto `_knownPlayerStates` to reconstruct full state.
+     * @private
+     */
     _handleStateSnapshot(snapshot) {
         const serverTime = snapshot.timestamp;
         const localTime = Date.now();
@@ -334,13 +351,35 @@ export class NetworkManager {
             this._serverTimeOffset = this._serverTimeOffset * 0.9 + offset * 0.1;
         }
 
-        for (const playerData of snapshot.players) {
-            if (playerData.id === this.playerId) {
-                // Local player: reconciliation
-                this._reconcileLocalPlayer(playerData);
+        const isKeyframe = snapshot.kf === 1;
+
+        for (const playerDelta of snapshot.players) {
+            const pid = playerDelta.id;
+
+            // Merge delta onto known state
+            let fullState;
+            if (isKeyframe) {
+                // Keyframe: use the data as-is (full state)
+                fullState = { ...playerDelta };
             } else {
-                // Remote player: buffer for interpolation
-                this._bufferRemoteState(playerData, serverTime);
+                // Delta: merge onto last known
+                const prev = this._knownPlayerStates.get(pid);
+                if (prev) {
+                    fullState = { ...prev, ...playerDelta };
+                } else {
+                    // No previous state — treat delta as full (first packet)
+                    fullState = { ...playerDelta };
+                }
+            }
+
+            // Update accumulator
+            this._knownPlayerStates.set(pid, fullState);
+
+            // Route to local or remote handler
+            if (pid === this.playerId) {
+                this._reconcileLocalPlayer(fullState);
+            } else {
+                this._bufferRemoteState(fullState, serverTime);
             }
         }
     }
@@ -353,7 +392,9 @@ export class NetworkManager {
     _reconcileLocalPlayer(serverData) {
         // Remove all inputs confirmed by server
         const confirmedSeq = serverData.seq;
-        this.pendingInputs = this.pendingInputs.filter(input => input.seq > confirmedSeq);
+        if (confirmedSeq !== undefined) {
+            this.pendingInputs = this.pendingInputs.filter(input => input.seq > confirmedSeq);
+        }
 
         // Store server state for GameManager to read and apply
         this._lastServerState = {
@@ -539,6 +580,7 @@ export class NetworkManager {
         this.pendingInputs = [];
         this.remoteStateBuffers.clear();
         this.interpolatedStates.clear();
+        this._knownPlayerStates.clear();
         this._lastServerState = null;
         this._sequenceNumber = 0;
     }

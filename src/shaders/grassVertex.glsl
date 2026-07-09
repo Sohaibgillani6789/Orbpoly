@@ -7,6 +7,7 @@ varying vec3 vWorldNormal;   // approximate face normal
 varying vec2 vGrassVariation;
 varying vec3 vAmbientInfluence;
 varying float vNdotL;
+varying float vFogDepth;     // camera-space depth for exponential fog
 
 uniform float iTime;
 uniform float uWaveSize;
@@ -98,4 +99,8 @@ void main() {
     // Final position
     vec4 mvPosition = projectionMatrix * modelViewMatrix * vec4(cpos, 1.0);
     gl_Position = mvPosition;
+
+    // Fog depth: extract camera-space z from modelView transform
+    // Reuses the same cpos already transformed above — just need view-space z
+    vFogDepth = -(modelViewMatrix * vec4(cpos, 1.0)).z;
 }
