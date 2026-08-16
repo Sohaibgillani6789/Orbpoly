@@ -1,248 +1,397 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Valley House</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./style.css">
-    <link rel="stylesheet" href="./char-select.css">
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Valley House</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./char-select.css">
 </head>
+
 <body>
-    <div class="loader-overlay" id="loading-overlay">
-        <div class="loader-bg" id="loading-bg"></div>
-        <div class="loader-bar-bottom" id="loading-bar"></div>
-    </div>
-    <button class="play-button">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="24px" height="24px">
-            <path d="M8 5v14l11-7z"/>
-        </svg>
-    </button>
+  <div class="loader-overlay" id="loading-overlay">
+    <div class="loader-bg" id="loading-bg"></div>
+    <div class="loader-bar-bottom" id="loading-bar"></div>
+  </div>
+  <button class="play-button">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="24px" height="24px">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  </button>
 
-    <div id="orb-ui" class="orb-counter-container" style="display:none;">
-        <div class="orb-icon"></div>
-        <div class="orb-text">ORBS</div>
-        <div class="orb-count" id="orb-count-text">0/5</div>
-    </div>
+  <div id="orb-ui" class="orb-counter-container" style="display:none;">
+    <div class="orb-icon"></div>
+    <div class="orb-text">ORBS</div>
+    <div class="orb-count" id="orb-count-text">0/5</div>
+  </div>
 
-    <!-- ═══════════════════════════════════════════════════════
+  <!-- ═══════════════════════════════════════════════════════
          COMBAT HUD — Health Bars + Orb Counters
          Shown when game starts via .visible class
          ═══════════════════════════════════════════════════════ -->
-    <div id="combat-hud" class="combat-hud">
-        <!-- Player Side (Left) -->
-        <div class="combat-hud__side combat-hud__side--left">
-            <div class="combat-hud__name" id="player-hud-name">PLAYER</div>
-            <div class="combat-hud__health-bar">
-                <div class="combat-hud__health-fill" id="player-health-fill"></div>
-            </div>
-            <div class="combat-hud__orbs">
-                <span class="combat-hud__orb-icon"></span>
-                <span class="combat-hud__orb-text" id="player-orb-count">0/5</span>
-            </div>
-            <div class="combat-hud__lives" id="player-lives">❤️❤️</div>
-            <div class="combat-hud__barge-container">
-                <div class="combat-hud__barge-bar">
-                    <div class="combat-hud__barge-fill" id="barge-fill"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- VS Divider -->
-        <div class="combat-hud__vs">VS</div>
-
-        <!-- Bot Side (Right) -->
-        <div class="combat-hud__side combat-hud__side--right">
-            <div class="combat-hud__name" id="bot-name">BOT</div>
-            <div class="combat-hud__health-bar">
-                <div class="combat-hud__health-fill" id="bot-health-fill"></div>
-            </div>
-            <div class="combat-hud__orbs">
-                <span class="combat-hud__orb-icon"></span>
-                <span class="combat-hud__orb-text" id="bot-orb-count">0/5</span>
-            </div>
-            <div class="combat-hud__lives" id="bot-lives">❤️❤️</div>
-        </div>
-    </div>
-
-    <!-- Winner Banner (hidden until game ends) -->
-    <div id="winner-banner" class="winner-banner">
-        <div class="winner-banner__glow"></div>
-        <div class="winner-banner__text" id="winner-text">Player Wins!</div>
-    </div>
-
-    <!-- Hit vignette — red flash on player damage -->
-    <div id="hit-vignette"></div>
-
-    <canvas class="webgl"></canvas>
-
-
-    <!-- ═══════════════════════════════════════════════════════
-         CHARACTER SELECTION OVERLAY — Left Panel Layout
-         Triggered by .is-visible class after camera intro
+  <!-- ═══════════════════════════════════════════════════════
+         COMBAT HUD — Tekken 8 Style 3D Slanted Metallic HUD
+         Shown when game starts via .visible class
          ═══════════════════════════════════════════════════════ -->
-    <div id="ui-root" class="char-select">
-      <!-- Full-screen background image -->
-      <div class="char-select__bg-image"></div>
-
-      <!-- Left-aligned vertical panel -->
-      <div class="char-select__left-panel">
-
-        <!-- Menu Buttons (top) -->
-        <div class="char-select__menu-buttons">
-          <button id="btn-play-offline" class="global-action-btn">PLAY OFFLINE</button>
-          <button id="btn-play-multiplayer" class="global-action-btn global-action-btn--mp">MULTIPLAYER</button>
-        </div>
-
-        <!-- Character Card Area -->
-        <div class="char-select__card-area">
-          <!-- Arrow navigation -->
-          <button class="char-select__arrow char-select__arrow--left" id="cs-arrow-left" aria-label="Previous">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
-          <button class="char-select__arrow char-select__arrow--right" id="cs-arrow-right" aria-label="Next">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
-          </button>
-
-          <div class="char-select__track" id="cs-track">
-            <article class="char-card is-active" style="--i:0" data-character="warrior">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:200"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">WARRIOR</h2>
-                </div>
-              </div>
-            </article>
-
-            <article class="char-card" style="--i:1" data-character="wizard">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:260"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">WIZARD</h2>
-                </div>
-              </div>
-            </article>
-
-            <article class="char-card" style="--i:2" data-character="rogue">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:150"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">ROGUE</h2>
-                </div>
-              </div>
-            </article>
-
-            <article class="char-card" style="--i:3" data-character="ranger">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:120"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">RANGER</h2>
-                </div>
-              </div>
-            </article>
-
-            <article class="char-card" style="--i:4" data-character="monk">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:40"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">MONK</h2>
-                </div>
-              </div>
-            </article>
-
-            <article class="char-card" style="--i:5" data-character="cleric">
-              <div class="char-card__border-glow"></div>
-              <div class="char-card__inner">
-                <div class="char-card__portrait-img" style="--card-hue:180"></div>
-                <div class="char-card__content">
-                  <h2 class="player-name">CLERIC</h2>
-                </div>
-              </div>
-            </article>
+  <!-- ═══════════════════════════════════════════════════════
+         COMBAT HUD — Sleek Responsive Combat Interface
+         Shown when game starts via .visible class
+         ═══════════════════════════════════════════════════════ -->
+  <div id="combat-hud" class="combat-hud">
+    <!-- Player Side (Left) -->
+    <div class="combat-hud__side combat-hud__side--left">
+      <!-- Main Slanted Health Bar + Cross Orb Crest + Sub-bar -->
+      <div class="combat-hud__bar-unit combat-hud__bar-unit--left">
+        <!-- Octagonal/Cross Orb Crest (Reference Image Style) -->
+        <div class="combat-hud__orb-crest">
+          <div class="combat-hud__crest-cross"></div>
+          <div class="combat-hud__crest-inner">
+            <div class="combat-hud__crest-sphere"></div>
+          </div>
+          <!-- 2 Red Dots for Hearts beneath Orb Design -->
+          <div class="combat-hud__lives combat-hud__lives--below-orb" id="player-lives">
+            <div class="combat-hud__heart-socket active"><span class="combat-hud__heart-dot"></span></div>
+            <div class="combat-hud__heart-socket active"><span class="combat-hud__heart-dot"></span></div>
           </div>
         </div>
 
+        <!-- Slanted Health Frame + Blue Sub-Bar -->
+        <div class="combat-hud__health-frame combat-hud__health-frame--left">
+          <div class="combat-hud__health-track">
+            <!-- Trailing Red Damage Chunk -->
+            <div class="combat-hud__health-red" id="player-health-red"></div>
+            <!-- Main Clean Green Active Health Fill -->
+            <div class="combat-hud__health-fill" id="player-health-fill"></div>
+            <!-- Character Name Overlay inside Health Bar -->
+            <div class="combat-hud__name-overlay combat-hud__name-overlay--left">
+              <span class="combat-hud__portrait-tag">P1</span>
+              <span class="combat-hud__name-text" id="player-hud-name">WARRIOR</span>
+            </div>
+          </div>
 
+          <!-- Blue Sub-Bar (Barge Design) -->
+          <div class="combat-hud__barge-subbar">
+            <div class="combat-hud__barge-fill" id="barge-fill"></div>
+          </div>
 
+          <!-- 5 Slanted Orb Indicator Slots matching Health & Barge UI -->
+          <div class="combat-hud__orb-slots combat-hud__orb-slots--left" id="player-orb-slots">
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ═══════════════════════════════════════════════════════
+    <!-- Simple Clean White VS Logo -->
+    <div class="combat-hud__vs-wrapper">
+      <div class="combat-hud__vs-crest"></div>
+      <div class="combat-hud__vs" id="combat-hud-vs">
+        <span class="vs-letter vs-v">V</span>
+        <span class="vs-letter vs-s">S</span>
+      </div>
+    </div>
+
+    <!-- Bot / Player 2 Side (Right) -->
+    <div class="combat-hud__side combat-hud__side--right">
+      <!-- Main Slanted Health Bar + Cross Orb Crest + Sub-bar -->
+      <div class="combat-hud__bar-unit combat-hud__bar-unit--right">
+        <!-- Slanted Health Frame + Blue Sub-Bar -->
+        <div class="combat-hud__health-frame combat-hud__health-frame--right">
+          <div class="combat-hud__health-track">
+            <!-- Trailing Red Damage Chunk -->
+            <div class="combat-hud__health-red" id="bot-health-red"></div>
+            <!-- Main Clean Green Active Health Fill -->
+            <div class="combat-hud__health-fill" id="bot-health-fill"></div>
+            <!-- Character Name Overlay inside Health Bar -->
+            <div class="combat-hud__name-overlay combat-hud__name-overlay--right">
+              <span class="combat-hud__name-text" id="bot-name">BOT</span>
+              <span class="combat-hud__portrait-tag combat-hud__portrait-tag--p2">P2</span>
+            </div>
+          </div>
+
+          <!-- Blue Sub-Bar (Barge Design) -->
+          <div class="combat-hud__barge-subbar">
+            <div class="combat-hud__barge-fill combat-hud__barge-fill--bot"></div>
+          </div>
+
+          <!-- 5 Slanted Orb Indicator Slots matching Health & Barge UI -->
+          <div class="combat-hud__orb-slots combat-hud__orb-slots--right" id="bot-orb-slots">
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+            <div class="orb-slot"></div>
+          </div>
+        </div>
+
+        <!-- Octagonal/Cross Orb Crest (Reference Image Style) -->
+        <div class="combat-hud__orb-crest">
+          <div class="combat-hud__crest-cross"></div>
+          <div class="combat-hud__crest-inner">
+            <div class="combat-hud__crest-sphere"></div>
+          </div>
+          <!-- 2 Red Dots for Hearts beneath Orb Design -->
+          <div class="combat-hud__lives combat-hud__lives--below-orb" id="bot-lives">
+            <div class="combat-hud__heart-socket active"><span class="combat-hud__heart-dot"></span></div>
+            <div class="combat-hud__heart-socket active"><span class="combat-hud__heart-dot"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Winner Banner (hidden until game ends) -->
+  <div id="winner-banner" class="winner-banner">
+    <div class="winner-banner__glow"></div>
+    <div class="winner-banner__text" id="winner-text">Player Wins!</div>
+  </div>
+
+  <!-- Hit vignette — red flash on player damage -->
+  <div id="hit-vignette"></div>
+
+  <canvas class="webgl"></canvas>
+
+
+  <!-- ═══════════════════════════════════════════════════════
+         CHARACTER SELECTION OVERLAY — Centered 3D Model Layout
+         Triggered by .is-visible class after camera intro
+         ═══════════════════════════════════════════════════════ -->
+  <div id="ui-root" class="char-select">
+    <!-- Full-screen gradient background -->
+    <div class="char-select__bg"></div>
+
+    <!-- Controller icon button (top-right) — opens controls modal -->
+    <button class="cs-ctrl-btn" id="btn-controls" aria-label="Game Controls">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Controller body -->
+        <rect x="2" y="7" width="20" height="11" rx="5" ry="5"/>
+        <!-- D-pad left stub -->
+        <line x1="6" y1="12" x2="8" y2="12"/>
+        <line x1="7" y1="11" x2="7" y2="13"/>
+        <!-- Right buttons -->
+        <circle cx="16" cy="10.5" r="0.8" fill="currentColor"/>
+        <circle cx="18" cy="12.5" r="0.8" fill="currentColor"/>
+        <circle cx="16" cy="14.5" r="0.8" fill="currentColor"/>
+        <!-- Bumpers -->
+        <path d="M6 7 Q7 4 10 4"/>
+        <path d="M18 7 Q17 4 14 4"/>
+      </svg>
+    </button>
+
+    <!-- Controls Modal (shown on controller icon click) -->
+    <div class="cs-controls-modal" id="cs-controls-modal" aria-hidden="true">
+      <div class="cs-controls-modal__panel">
+        <div class="cs-controls-modal__header">
+          <span class="cs-controls-modal__title">CONTROLS</span>
+          <button class="cs-controls-modal__close" id="btn-controls-close" aria-label="Close">✕</button>
+        </div>
+
+        <div class="cs-controls-modal__body">
+          <!-- Movement -->
+          <div class="cs-ctrl-group">
+            <div class="cs-ctrl-group__label">MOVEMENT</div>
+            <div class="cs-ctrl-row">
+              <div class="cs-key-cluster">
+                <div class="cs-key" style="grid-area:top">W</div>
+                <div class="cs-key" style="grid-area:left">A</div>
+                <div class="cs-key" style="grid-area:mid">S</div>
+                <div class="cs-key" style="grid-area:right">D</div>
+              </div>
+              <span class="cs-ctrl-desc">Walk</span>
+            </div>
+            <div class="cs-ctrl-row">
+              <div class="cs-key cs-key--space">SPACE</div>
+              <span class="cs-ctrl-desc">Jump</span>
+            </div>
+          </div>
+
+          <!-- Mouse -->
+          <div class="cs-ctrl-group">
+            <div class="cs-ctrl-group__label">MOUSE</div>
+            <div class="cs-ctrl-row">
+              <div class="cs-mouse-icon">
+                <div class="cs-mouse-icon__btn cs-mouse-icon__btn--lit"></div>
+                <div class="cs-mouse-icon__scroll"></div>
+                <div class="cs-mouse-icon__btn"></div>
+              </div>
+              <div class="cs-ctrl-desc-col">
+                <span class="cs-ctrl-desc"><b>Left</b> — Attack</span>
+                <span class="cs-ctrl-desc"><b>Right</b> — Heavy Hit</span>
+                <span class="cs-ctrl-desc"><b>Double</b> — Combo</span>
+                <span class="cs-ctrl-desc"><b>Middle</b> — Barge</span>
+                <span class="cs-ctrl-desc"><b>Move</b> — Camera Look</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="cs-ctrl-group">
+            <div class="cs-ctrl-group__label">ACTIONS</div>
+            <div class="cs-ctrl-row">
+              <div class="cs-key">F</div>
+              <span class="cs-ctrl-desc">Shield</span>
+            </div>
+            <div class="cs-ctrl-row">
+              <div class="cs-key">C</div>
+              <span class="cs-ctrl-desc">Free Camera</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: 3D Model viewport + Character name -->
+    <div class="char-select__center">
+      <button class="cs-nav-arrow cs-nav-arrow--left" id="cs-arrow-left" aria-label="Previous">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6" />
+        </svg>
+      </button>
+
+      <div class="char-select__model-area" id="cs-model-area">
+        <canvas class="char-select__preview-canvas" id="cs-preview-canvas"></canvas>
+        <div class="char-select__ground-shadow"></div>
+      </div>
+
+      <button class="cs-nav-arrow cs-nav-arrow--right" id="cs-arrow-right" aria-label="Next">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Character name below model -->
+    <div class="char-select__name-area">
+      <h2 class="char-select__char-name" id="cs-char-name">WARRIOR</h2>
+    </div>
+
+    <!-- Bottom-right: Gamemode + PLAY + Multiplayer -->
+    <div class="char-select__bottom-right">
+      <!-- Gamemode Interactive Card -->
+      <div class="cs-gamemode" id="cs-gamemode" role="button" tabindex="0" title="Click to switch game mode">
+        <div class="cs-gamemode__badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="cs-gamemode__info">
+          <div class="cs-gamemode__top-row">
+            <span class="cs-gamemode__label">GAMEMODE</span>
+            <span class="cs-gamemode__tag" id="cs-gamemode-tag">SOLO</span>
+          </div>
+          <div class="cs-gamemode__value" id="cs-gamemode-value">1 VS 1 BOT</div>
+        </div>
+        <div class="cs-gamemode__cycle-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Main PLAY Button (Offline Solo Mode) -->
+      <button class="cs-play-btn" id="btn-play-offline" aria-label="Start Solo Play">
+        <span class="cs-btn-shimmer"></span>
+        <svg class="cs-btn-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+        <span class="cs-btn-text">PLAY SOLO</span>
+      </button>
+
+      <!-- MULTIPLAYER Button (Online Mode) -->
+      <button class="cs-mp-btn" id="btn-play-multiplayer" aria-label="Open Online Multiplayer">
+        <span class="cs-btn-shimmer"></span>
+        <svg class="cs-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span class="cs-btn-text">MULTIPLAYER</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
          MULTIPLAYER LOBBY OVERLAY
          Shown when player clicks MULTIPLAYER button
          ═══════════════════════════════════════════════════════ -->
-    <div id="mp-lobby" class="mp-lobby" style="display:none;">
-      <div class="mp-lobby__backdrop"></div>
-      <div class="mp-lobby__panel">
-        <h2 class="mp-lobby__title">MULTIPLAYER</h2>
-        <div class="mp-lobby__title-line"></div>
+  <div id="mp-lobby" class="mp-lobby" style="display:none;">
+    <div class="mp-lobby__backdrop"></div>
+    <div class="mp-lobby__panel">
+      <h2 class="mp-lobby__title">MULTIPLAYER</h2>
+      <div class="mp-lobby__title-line"></div>
 
-        <!-- Connection Status -->
-        <div class="mp-lobby__status" id="mp-status">Connecting...</div>
-        <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-retry-btn" style="display:none;">RETRY CONNECTION</button>
+      <!-- Connection Status -->
+      <div class="mp-lobby__status" id="mp-status">Connecting...</div>
+      <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-retry-btn" style="display:none;">RETRY
+        CONNECTION</button>
 
-        <!-- Create / Join -->
-        <div class="mp-lobby__actions" id="mp-actions" style="display:none;">
-          <button class="mp-lobby__btn mp-lobby__btn--create" id="mp-create-btn">CREATE ROOM</button>
-          <div class="mp-lobby__join-row">
-            <input type="text" class="mp-lobby__input" id="mp-room-code" placeholder="ROOM CODE" maxlength="5" spellcheck="false" autocomplete="off">
-            <button class="mp-lobby__btn mp-lobby__btn--join" id="mp-join-btn">JOIN</button>
-          </div>
+      <!-- Create / Join -->
+      <div class="mp-lobby__actions" id="mp-actions" style="display:none;">
+        <button class="mp-lobby__btn mp-lobby__btn--create" id="mp-create-btn">CREATE ROOM</button>
+        <div class="mp-lobby__join-row">
+          <input type="text" class="mp-lobby__input" id="mp-room-code" placeholder="ROOM CODE" maxlength="5"
+            spellcheck="false" autocomplete="off">
+          <button class="mp-lobby__btn mp-lobby__btn--join" id="mp-join-btn">JOIN</button>
         </div>
-
-        <!-- Room List -->
-        <div class="mp-lobby__rooms" id="mp-rooms" style="display:none;">
-          <h3 class="mp-lobby__rooms-title">OPEN ROOMS</h3>
-          <div class="mp-lobby__rooms-list" id="mp-rooms-list"></div>
-        </div>
-
-        <!-- In-Room Waiting -->
-        <div class="mp-lobby__waiting" id="mp-waiting" style="display:none;">
-          <div class="mp-lobby__room-code-display">ROOM: <span id="mp-room-id-display"></span></div>
-          <div class="mp-lobby__players" id="mp-players-list"></div>
-          <button class="mp-lobby__btn mp-lobby__btn--start" id="mp-start-btn">START GAME</button>
-          <div class="mp-lobby__hint">Waiting for players...</div>
-        </div>
-
-        <!-- Back Button -->
-        <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-back-btn">← BACK</button>
       </div>
-    </div>
 
-    <!-- ═══════════════════════════════════════════════════════
+      <!-- Room List -->
+      <div class="mp-lobby__rooms" id="mp-rooms" style="display:none;">
+        <h3 class="mp-lobby__rooms-title">OPEN ROOMS</h3>
+        <div class="mp-lobby__rooms-list" id="mp-rooms-list"></div>
+      </div>
+
+      <!-- In-Room Waiting -->
+      <div class="mp-lobby__waiting" id="mp-waiting" style="display:none;">
+        <div class="mp-lobby__room-code-display">ROOM: <span id="mp-room-id-display"></span></div>
+        <div class="mp-lobby__players" id="mp-players-list"></div>
+        <button class="mp-lobby__btn mp-lobby__btn--start" id="mp-start-btn">START GAME</button>
+        <div class="mp-lobby__hint">Waiting for players...</div>
+      </div>
+
+      <!-- Back Button -->
+      <button class="mp-lobby__btn mp-lobby__btn--back" id="mp-back-btn">← BACK</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
          DISCONNECT OVERLAY — Shown when server drops mid-game
          Auto-dismisses after 3s, returns to character select
          ═══════════════════════════════════════════════════════ -->
-    <div id="disconnect-overlay" class="disconnect-overlay" style="display:none;">
-      <div class="disconnect-overlay__backdrop"></div>
-      <div class="disconnect-overlay__panel">
-        <div class="disconnect-overlay__icon">⚠️</div>
-        <h2 class="disconnect-overlay__title">Connection Lost</h2>
-        <p class="disconnect-overlay__msg">The server restarted. Returning to lobby...</p>
-        <div class="disconnect-overlay__bar-track">
-          <div class="disconnect-overlay__bar-fill"></div>
-        </div>
+  <div id="disconnect-overlay" class="disconnect-overlay" style="display:none;">
+    <div class="disconnect-overlay__backdrop"></div>
+    <div class="disconnect-overlay__panel">
+      <div class="disconnect-overlay__icon">⚠️</div>
+      <h2 class="disconnect-overlay__title">Connection Lost</h2>
+      <p class="disconnect-overlay__msg">The server restarted. Returning to lobby...</p>
+      <div class="disconnect-overlay__bar-track">
+        <div class="disconnect-overlay__bar-fill"></div>
       </div>
     </div>
+  </div>
 
-    <div class="orientation-prompt">
-        <svg class="orientation-icon" fill="white" viewBox="0 0 24 24">
-            <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77c-.59-.59-1.54-.59-2.12 0L1.75 8.11c-.59.59-.59 1.54 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/>
-        </svg>
-        <div class="orientation-text">Go Wide!</div>
-        <div class="orientation-text">Please rotate your device</div>
-    </div>
+  <div class="orientation-prompt">
+    <svg class="orientation-icon" fill="white" viewBox="0 0 24 24">
+      <path
+        d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77c-.59-.59-1.54-.59-2.12 0L1.75 8.11c-.59.59-.59 1.54 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z" />
+    </svg>
+    <div class="orientation-text">Go Wide!</div>
+    <div class="orientation-text">Please rotate your device</div>
+  </div>
 
-    <script type="module" src="./script.js"></script>
+  <script type="module" src="./script.js"></script>
 </body>
+
 </html>

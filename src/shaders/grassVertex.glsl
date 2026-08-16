@@ -2,8 +2,6 @@ varying vec2 vUv;
 varying vec2 cloudUV;
 varying vec3 vColor;
 varying float vHeight;       // normalized blade height 0..1
-varying vec3 vWorldPos;      // world-space position for lighting
-varying vec3 vWorldNormal;   // approximate face normal
 varying vec2 vGrassVariation;
 varying vec3 vAmbientInfluence;
 varying float vNdotL;
@@ -89,18 +87,10 @@ void main() {
     cloudUV.x += iTime / 40000.0;
     cloudUV.y += iTime / 20000.0;
 
-    // Pass world position
-    vec4 worldPos = modelMatrix * vec4(cpos, 1.0);
-    vWorldPos = worldPos.xyz;
-
-    // Approximate normal (grass blades face outward/up)
-    vWorldNormal = normalize((modelMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-
     // Final position
     vec4 mvPosition = projectionMatrix * modelViewMatrix * vec4(cpos, 1.0);
     gl_Position = mvPosition;
 
     // Fog depth: extract camera-space z from modelView transform
-    // Reuses the same cpos already transformed above — just need view-space z
-    vFogDepth = -(modelViewMatrix * vec4(cpos, 1.0)).z;
+    vFogDepth = -mvPosition.z;
 }

@@ -1,4 +1,4 @@
-﻿
+
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;600;700;800;900&family=Inter:wght@200;400;500;600&display=swap');
 
 * {
@@ -369,7 +369,11 @@ body {
 
 
 /* ============================================================
-   COMBAT HUD â€” Health Bars + Orb Counters + Winner Banner
+   COMBAT HUD — Tekken 8 Style 3D Slanted Metallic HUD
+   ============================================================ */
+
+/* ============================================================
+   COMBAT HUD — Sleek Responsive Combat Interface
    ============================================================ */
 
 .combat-hud {
@@ -381,13 +385,14 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    padding: 18px 24px 0;
+    padding: 14px 28px 0;
     pointer-events: none;
     opacity: 0;
-    transform: translateY(-30px);
+    transform: translateY(-50px);
     transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     font-family: 'Orbitron', sans-serif;
     will-change: opacity, transform;
+    box-sizing: border-box;
 }
 
 .combat-hud.visible {
@@ -395,13 +400,14 @@ body {
     transform: translateY(0);
 }
 
+/* Side Containers */
 .combat-hud__side {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    min-width: 200px;
-    max-width: 280px;
+    gap: 4px;
     flex: 1;
+    min-width: 0;
+    max-width: 620px;
 }
 
 .combat-hud__side--left {
@@ -412,77 +418,665 @@ body {
     align-items: flex-end;
 }
 
-.combat-hud__name {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 3px;
-    color: rgba(255, 255, 255, 0.9);
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
-    text-transform: uppercase;
+/* ─── Main Bar Unit (Orb Crest + Health Frame + Sub-Bar) ─── */
+.combat-hud__bar-unit {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    position: relative;
 }
 
-.combat-hud__health-bar {
-    width: 100%;
-    height: 10px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
+.combat-hud__bar-unit--left {
+    flex-direction: row;
+}
+
+.combat-hud__bar-unit--right {
+    flex-direction: row;
+}
+
+/* ─── Octagonal / Cross Orb Crest Emblem ─── */
+.combat-hud__orb-crest {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 40%, #2e3238 0%, #15171a 70%, #0a0b0d 100%);
+    border: 3px solid #8c96a3;
+    box-shadow: 
+        0 6px 16px rgba(0, 0, 0, 0.9),
+        inset 0 2px 4px rgba(255, 255, 255, 0.6),
+        0 0 15px rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.combat-hud__bar-unit--left .combat-hud__orb-crest {
+    margin-right: -12px;
+}
+
+.combat-hud__bar-unit--right .combat-hud__orb-crest {
+    margin-left: -12px;
+}
+
+/* Outer bevel ring */
+.combat-hud__orb-crest::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+}
+
+/* Red diagonal cross stripes */
+.combat-hud__crest-cross {
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
     overflow: hidden;
-    backdrop-filter: blur(4px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
 }
 
-.combat-hud__health-fill {
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, #00e676, #76ff03);
-    border-radius: 4px;
-    transition: width 0.3s ease-out;
-    will-change: width;
-    box-shadow: 0 0 8px rgba(0, 230, 118, 0.4);
+.combat-hud__crest-cross::before,
+.combat-hud__crest-cross::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -20%;
+    width: 140%;
+    height: 5px;
+    background: linear-gradient(90deg, #880000, #ff1a1a 50%, #880000);
+    box-shadow: 0 0 6px rgba(255, 0, 0, 0.8);
 }
 
-.combat-hud__orbs {
+.combat-hud__crest-cross::before {
+    transform: translateY(-50%) rotate(45deg);
+}
+
+.combat-hud__crest-cross::after {
+    transform: translateY(-50%) rotate(-45deg);
+}
+
+/* Inner housing ring */
+.combat-hud__crest-inner {
+    position: relative;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #484e56, #181a1d);
+    border: 2px solid #a4afbd;
+    box-shadow: inset 0 3px 6px rgba(0,0,0,0.9), 0 2px 4px rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+
+/* Central spherical dark orb dome */
+.combat-hud__crest-sphere {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #687078 0%, #202428 50%, #060708 90%);
+    box-shadow: inset -2px -2px 5px rgba(0,0,0,0.9), inset 2px 2px 4px rgba(255,255,255,0.7);
+    position: relative;
+}
+
+.combat-hud__crest-sphere::after {
+    content: '';
+    position: absolute;
+    top: 15%;
+    left: 20%;
+    width: 38%;
+    height: 28%;
+    border-radius: 50%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.1));
+}
+
+/* ─── 2 Red Dots for Hearts/Lives beneath Orb Design ─── */
+.combat-hud__lives--below-orb {
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     align-items: center;
     gap: 6px;
+    z-index: 15;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9));
 }
 
-.combat-hud__orb-icon {
-    width: 14px;
-    height: 14px;
+.combat-hud__heart-socket {
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 35%, #ff4400 10%, #ff2200 50%, #990000 90%);
-    box-shadow: 0 0 6px #ff4400, 0 0 12px #990000;
-    animation: combatOrbPulse 2s infinite alternate ease-in-out;
+    background: #180303;
+    border: 1.5px solid #441111;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0 4px #000000;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-@keyframes combatOrbPulse {
-    0% { box-shadow: 0 0 4px #ff4400, 0 0 8px #990000; transform: scale(0.9); }
-    100% { box-shadow: 0 0 8px #ff4400, 0 0 16px #990000; transform: scale(1.1); }
+.combat-hud__heart-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #330808;
+    transition: all 0.3s ease;
 }
 
-.combat-hud__orb-text {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #fff;
-    text-shadow: 0 0 6px #ff4400;
+.combat-hud__heart-socket.active {
+    background: radial-gradient(circle at 35% 35%, #ff5252 0%, #ff0033 60%, #990011 100%);
+    border-color: #ff8899;
+    box-shadow: 0 0 10px #ff0033, 0 0 18px rgba(255, 0, 51, 0.85);
+    animation: redHeartPulse 2s infinite alternate ease-in-out;
+}
+
+.combat-hud__heart-socket.active .combat-hud__heart-dot {
+    background: #ffffff;
+    box-shadow: 0 0 6px #ffffff;
+}
+
+@keyframes redHeartPulse {
+    0% { transform: scale(1); filter: brightness(1); }
+    100% { transform: scale(1.15); filter: brightness(1.3); box-shadow: 0 0 14px #ff0033, 0 0 24px rgba(255, 0, 51, 1); }
+}
+
+.combat-hud__heart-socket.is-lost {
+    opacity: 0.35;
+    background: #0d0202;
+    border-color: #220505;
+    box-shadow: none;
+    transform: scale(0.85);
+}
+
+.combat-hud__heart-socket.is-lost .combat-hud__heart-dot {
+    background: #1a0505;
+}
+
+/* ─── Slanted Parallelogram Health Frame ─── */
+.combat-hud__health-frame {
+    position: relative;
+    flex: 1;
+    height: 44px;
+    background: linear-gradient(180deg, #585e68 0%, #2e3238 35%, #15171a 70%, #3e444d 100%);
+    border-radius: 4px;
+    padding: 3.5px;
+    border: 2.5px solid #8c96a3;
+    box-shadow: 
+        0 10px 25px rgba(0, 0, 0, 0.85),
+        inset 0 2px 4px rgba(255, 255, 255, 0.5),
+        0 0 15px rgba(0, 0, 0, 0.6);
+}
+
+.combat-hud__health-frame--left {
+    transform: skewX(-16deg);
+    border-top-left-radius: 0;
+}
+
+.combat-hud__health-frame--right {
+    transform: skewX(16deg);
+    border-top-right-radius: 0;
+}
+
+.combat-hud__health-frame::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 5px;
+    border: 1.5px solid rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+}
+
+.combat-hud__health-track {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #05120a;
+    overflow: hidden;
+    border-radius: 2px;
+    box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.9);
+}
+
+/* Trailing Red Damage Bar */
+.combat-hud__health-red {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    background: linear-gradient(180deg, #ff4d4d 0%, #d50000 40%, #990000 100%);
+    transition: width 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+    z-index: 1;
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.7);
+    will-change: width;
+}
+
+.combat-hud__side--left .combat-hud__health-red {
+    left: 0;
+}
+
+.combat-hud__side--right .combat-hud__health-red {
+    right: 0;
+}
+
+/* Simple Clean Active Green Health Fill (No Black Segment Lines!) */
+.combat-hud__health-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    background: linear-gradient(180deg, #00e676 0%, #00c853 45%, #00897b 100%);
+    transition: width 0.2s ease-out;
+    z-index: 2;
+    box-shadow: 0 0 14px rgba(0, 230, 118, 0.7), inset 0 2px 3px rgba(255, 255, 255, 0.8);
+    will-change: width;
+}
+
+.combat-hud__side--left .combat-hud__health-fill {
+    left: 0;
+}
+
+.combat-hud__side--right .combat-hud__health-fill {
+    right: 0;
+}
+
+/* Top Specular Highlight Streak */
+.combat-hud__health-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 38%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.1), transparent);
+    pointer-events: none;
+}
+
+/* ─── Character Name Overlay Inside Health Bar ─── */
+.combat-hud__name-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 5;
+    pointer-events: none;
+    padding: 0 14px;
+}
+
+.combat-hud__name-overlay--left {
+    justify-content: flex-start;
+}
+
+.combat-hud__name-overlay--right {
+    justify-content: flex-end;
+}
+
+.combat-hud__portrait-tag {
+    font-size: 0.75rem;
+    font-weight: 900;
+    background: #00d2ff;
+    color: #000000;
+    padding: 2px 6px;
+    border-radius: 3px;
     letter-spacing: 1px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.combat-hud__portrait-tag--p2 {
+    background: #ff3b30;
+    color: #ffffff;
+}
+
+.combat-hud__name-text {
+    font-size: 1.1rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #ffffff;
+    text-shadow: 
+        0 0 8px rgba(0, 0, 0, 0.9),
+        0 2px 4px #000000,
+        1px 1px 2px #000000;
+    text-transform: uppercase;
+}
+
+/* ─── Blue Sub-Bar (Barge Bar) ─── */
+.combat-hud__barge-subbar {
+    position: absolute;
+    bottom: -9px;
+    left: 0;
+    right: 0;
+    height: 7px;
+    background: rgba(4, 12, 24, 0.95);
+    border: 1px solid rgba(0, 180, 255, 0.5);
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+
+.combat-hud__barge-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #0052cc 0%, #0099ff 50%, #00e5ff 100%);
+    transition: width 0.15s linear;
+    box-shadow: 0 0 10px #0099ff, inset 0 1px 2px rgba(255, 255, 255, 0.8);
+    border-radius: 2px;
+}
+
+.combat-hud__barge-fill--bot {
+    width: 100%;
+    background: linear-gradient(90deg, #0052cc 0%, #0088ff 100%);
+    opacity: 0.7;
+}
+
+.combat-hud__barge-fill.ready {
+    width: 100%;
+    background: linear-gradient(90deg, #00d2ff 0%, #ffffff 50%, #00e5ff 100%);
+    box-shadow: 0 0 16px #00e5ff, 0 0 28px rgba(0, 229, 255, 0.9);
+    animation: bargeBluePulse 0.9s infinite alternate ease-in-out;
+}
+
+@keyframes bargeBluePulse {
+    0% { filter: brightness(1) drop-shadow(0 0 8px #00e5ff); }
+    100% { filter: brightness(1.7) drop-shadow(0 0 18px #00e5ff); }
+}
+
+/* ─── Simple Clean White VS Logo (Large Scale) ─── */
+.combat-hud__vs-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 140px;
+    height: 95px;
+    margin: 0 10px;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.combat-hud__vs-crest {
+    position: absolute;
+    width: 74px;
+    height: 74px;
+    background: radial-gradient(circle at 50% 50%, #161c28 0%, #0a0d14 75%, #030406 100%);
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-radius: 14px;
+    transform: rotate(45deg);
+    box-shadow: 
+        0 8px 24px rgba(0, 0, 0, 0.95),
+        inset 0 0 12px rgba(255, 255, 255, 0.15);
+    z-index: 1;
 }
 
 .combat-hud__vs {
+    position: relative;
+    z-index: 2;
     font-family: 'Orbitron', sans-serif;
-    font-size: 1.2rem;
+    font-size: 3.7rem;
     font-weight: 900;
-    color: rgba(255, 255, 255, 0.6);
-    text-shadow: 0 0 15px rgba(0, 210, 255, 0.4);
-    letter-spacing: 4px;
-    padding-top: 4px;
-    flex-shrink: 0;
-    margin: 0 16px;
+    letter-spacing: -2.5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-style: italic;
+    color: #ffffff;
+    text-shadow: 
+        0 0 16px rgba(255, 255, 255, 0.85),
+        0 3px 8px #000000;
 }
 
-/* â”€â”€â”€ Winner Banner â”€â”€â”€ */
+.vs-v {
+    color: #ffffff;
+    transform: translateX(2px) translateY(-2px);
+}
+
+.vs-s {
+    color: #d8e0e8;
+    transform: translateX(-2px) translateY(2px);
+}
+
+/* ─── 5 Slanted Orb Indicator Slots Below Barge Sub-Bar ─── */
+.combat-hud__orb-slots {
+    position: absolute;
+    bottom: -25px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.combat-hud__orb-slots--left {
+    right: 0;
+}
+
+.combat-hud__orb-slots--right {
+    right: 0;
+}
+
+.orb-slot {
+    width: 22px;
+    height: 12px;
+    background: linear-gradient(135deg, rgba(12, 16, 24, 0.95), rgba(5, 7, 12, 0.98));
+    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    border-radius: 2px;
+    transform: skewX(-16deg);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.9);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.combat-hud__orb-slots--right .orb-slot {
+    transform: skewX(16deg);
+}
+
+/* Active Collected Orb Slot: High Energy Molten Glow */
+.orb-slot.active {
+    background: linear-gradient(180deg, #ffe066 0%, #ff6600 55%, #cc1100 100%);
+    border-color: #ffe680;
+    box-shadow: 
+        0 0 10px #ff6600,
+        0 0 18px rgba(255, 102, 0, 0.8),
+        inset 0 1px 3px rgba(255, 255, 255, 0.9);
+    animation: orbSlotActivePulse 1.8s infinite alternate ease-in-out;
+}
+
+@keyframes orbSlotActivePulse {
+    0% { filter: brightness(1) drop-shadow(0 0 4px #ff6600); }
+    100% { filter: brightness(1.35) drop-shadow(0 0 10px #ff9900); }
+}
+
+/* ============================================================
+   RESPONSIVE LAYOUT (Mobile Landscape & 320px+ Screens)
+   ============================================================ */
+
+@media (max-width: 768px) {
+    .combat-hud {
+        padding: 10px 14px 0;
+    }
+
+    .combat-hud__side {
+        max-width: none;
+    }
+
+    .combat-hud__orb-crest {
+        width: 52px;
+        height: 52px;
+    }
+
+    .combat-hud__crest-inner {
+        width: 32px;
+        height: 32px;
+    }
+
+    .combat-hud__crest-sphere {
+        width: 20px;
+        height: 20px;
+    }
+
+    .combat-hud__health-frame {
+        height: 36px;
+        padding: 2.5px;
+    }
+
+    .combat-hud__name-text {
+        font-size: 0.9rem;
+        letter-spacing: 1px;
+    }
+
+    .combat-hud__portrait-tag {
+        font-size: 0.65rem;
+        padding: 1px 4px;
+    }
+
+    .combat-hud__vs-wrapper {
+        width: 110px;
+        height: 75px;
+        margin: 0 4px;
+    }
+
+    .combat-hud__vs-crest {
+        width: 58px;
+        height: 58px;
+    }
+
+    .combat-hud__vs {
+        font-size: 2.8rem;
+    }
+
+    .combat-hud__orb-slots {
+        bottom: -22px;
+        gap: 3px;
+    }
+
+    .orb-slot {
+        width: 18px;
+        height: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .combat-hud {
+        padding: 6px 8px 0;
+    }
+
+    .combat-hud__orb-crest {
+        width: 44px;
+        height: 44px;
+        border-width: 2px;
+    }
+
+    .combat-hud__bar-unit--left .combat-hud__orb-crest {
+        margin-right: -8px;
+    }
+
+    .combat-hud__bar-unit--right .combat-hud__orb-crest {
+        margin-left: -8px;
+    }
+
+    .combat-hud__crest-inner {
+        width: 26px;
+        height: 26px;
+    }
+
+    .combat-hud__crest-sphere {
+        width: 16px;
+        height: 16px;
+    }
+
+    .combat-hud__lives--below-orb {
+        bottom: -14px;
+        gap: 4px;
+    }
+
+    .combat-hud__heart-socket {
+        width: 10px;
+        height: 10px;
+    }
+
+    .combat-hud__heart-dot {
+        width: 4px;
+        height: 4px;
+    }
+
+    .combat-hud__health-frame {
+        height: 30px;
+        border-width: 1.5px;
+    }
+
+    .combat-hud__name-overlay {
+        padding: 0 8px;
+        gap: 4px;
+    }
+
+    .combat-hud__name-text {
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+    }
+
+    .combat-hud__portrait-tag {
+        font-size: 0.6rem;
+        padding: 1px 3px;
+    }
+
+    .combat-hud__barge-subbar {
+        bottom: -7px;
+        height: 5px;
+    }
+
+    .combat-hud__vs-wrapper {
+        width: 80px;
+        height: 60px;
+        margin: 0 2px;
+    }
+
+    .combat-hud__vs-crest {
+        width: 44px;
+        height: 44px;
+    }
+
+    .combat-hud__vs {
+        font-size: 2.1rem;
+    }
+
+    .combat-hud__orb-slots {
+        bottom: -19px;
+        gap: 2.5px;
+    }
+
+    .orb-slot {
+        width: 13px;
+        height: 8px;
+        border-width: 1px;
+    }
+}
+
+@media (max-width: 340px) {
+    .combat-hud {
+        padding: 4px 4px 0;
+    }
+
+    .combat-hud__name-text {
+        font-size: 0.65rem;
+    }
+
+    .combat-hud__portrait-tag {
+        display: none;
+    }
+
+    .combat-hud__health-frame {
+        height: 26px;
+    }
+}
+
+
+/* ─── Winner Banner ─── */
 .winner-banner {
     position: fixed;
     top: 0;

@@ -64,6 +64,23 @@ export class BotController {
         this._shouldJump = false;
         this.jumpTimer = 0;
         this.jumpInterval = 3 + Math.random() * 4; // Jump every 3-7 seconds
+
+        // --- Pause ---
+        this.paused = false;
+    }
+
+    /** Freeze / unfreeze the bot. When paused, all AI and movement stops. */
+    setPaused(val) {
+        this.paused = !!val;
+        if (this.paused) {
+            // Kill momentum so bot doesn't slide while frozen
+            this.controller.body.velocity.x = 0;
+            this.controller.body.velocity.z = 0;
+            this._cachedMoveDir.set(0, 0, 0);
+            if (!this.controller.animStateMachine.isLocked) {
+                this.controller.animStateMachine.setState(AnimState.IDLE);
+            }
+        }
     }
 
     /**
@@ -74,6 +91,7 @@ export class BotController {
      */
     update(dt, playerCtrl, currentOrb) {
         if (!this.controller.isAlive) return;
+        if (this.paused) return;
 
         this.attackCooldown = Math.max(0, this.attackCooldown - dt);
 
@@ -313,7 +331,6 @@ export class BotController {
             this.controller.body.applyForce(this._forceVec);
         }
     }
-
     // ─── HELPERS ─────────────────────────────────────────────
 
     /** @private — Dot-product facing check (no allocation) */

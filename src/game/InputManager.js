@@ -11,6 +11,8 @@ export class InputManager {
         this.keys = {};
 
         this.mouseDelta = { x: 0, y: 0 };
+        /** @private Reusable result object for zero allocations per frame */
+        this._deltaResult = { x: 0, y: 0 };
 
         /** @private */
         this._primaryAttack = false;
@@ -239,10 +241,11 @@ export class InputManager {
      * @returns {{x: number, y: number}}
      */
     consumeMouseDelta() {
-        const delta = { x: this.mouseDelta.x, y: this.mouseDelta.y };
+        this._deltaResult.x = this.mouseDelta.x;
+        this._deltaResult.y = this.mouseDelta.y;
         this.mouseDelta.x = 0;
         this.mouseDelta.y = 0;
-        return delta;
+        return this._deltaResult;
     }
 
     /** @param {boolean} val */

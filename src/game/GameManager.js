@@ -75,9 +75,12 @@ export class GameManager {
         this._ringOutY = options.ringOutY !== undefined ? options.ringOutY : -50;
         this._respawnDelay = options.respawnDelay || 3000;
         
-        // --- Orb Collection ---
+        // --- Orb Collection (Zero-Allocation Object Pool) ---
         this.playerScore = 0;
-        this.currentOrb = null;
+        this.currentOrb = new CollectibleOrb();
+        this.currentOrb.hide();
+        this.scene.add(this.currentOrb.group);
+
         this.orbSpawnTimer = 0;
         this.orbSpawnInterval = 10; // seconds
         this.winScore = 5;
@@ -95,6 +98,24 @@ export class GameManager {
         this._bargeTimer = 0;
         this._bargeDuration = 0.6;
 
+        // --- Scratch Vectors for Zero Allocations ---
+        this._hitDirVec = new CANNON.Vec3();
+        this._sparkLookVec = new THREE.Vector3();
+        this._sparkDirVec = new THREE.Vector3();
+
+        // --- DOM Cache & Dirty Flags ---
+        this._dom = null;
+        this._lastHudState = {
+            playerHp: -1,
+            botHp: -1,
+            playerOrbs: -1,
+            botOrbs: -1,
+            bargeRatio: -1,
+            bargeReady: false,
+            playerLives: -1,
+            botLives: -1
+        };
+
         // --- Shield Visuals (3D) ---
         this._shieldEffect = new ShieldEffect(this.scene);
 
@@ -106,19 +127,19 @@ export class GameManager {
         // --- Combat System Hooks ---
         this.combatSystem.onHit((data) => {
             const { attacker, victim } = data;
-            // Calculate flat direction from attacker to victim
-            const dir = new CANNON.Vec3(
+            // Calculate flat direction from attacker to victim (in-place vector)
+            this._hitDirVec.set(
                 victim.body.position.x - attacker.body.position.x,
                 0,
                 victim.body.position.z - attacker.body.position.z
             );
-            if (dir.length() > 0.001) {
-                dir.normalize();
+            if (this._hitDirVec.length() > 0.001) {
+                this._hitDirVec.normalize();
             } else {
-                dir.set(0, 0, 1);
+                this._hitDirVec.set(0, 0, 1);
             }
             // Trigger 3D stylized hit spark
-            this.triggerHitSpark(victim.model, dir);
+            this.triggerHitSpark(victim.model, this._hitDirVec);
         });
     }
 
@@ -184,6 +205,7 @@ export class GameManager {
         ringMesh.rotation.x = -Math.PI / 2; // Flat on ground
         ringMesh.name = "ring";
         group.add(ringMesh);
+        this._bargeRingMesh = ringMesh;
 
         // 2. Central smoky bubble burst
         const bubbleGeo = new THREE.SphereGeometry(1, 32, 16);
@@ -237,6 +259,7 @@ export class GameManager {
         bubbleMesh.position.y = 0.5; // Lift up a bit
         bubbleMesh.name = "bubble";
         group.add(bubbleMesh);
+        this._bargeBubbleMesh = bubbleMesh;
 
         this.scene.add(group);
         return group;
@@ -435,8 +458,13 @@ export class GameManager {
      * Starts the game.
      */
     start() {
+        this._cacheDOM();
         this.state = GameState.PLAYING;
         this.inputManager.enabled = true;
+        
+        if (this.botController) {
+            this.botController.setPaused(false);
+        }
         
         // Spawn first orb immediately (single-player only)
         if (!this.isMultiplayer) {
@@ -448,6 +476,26 @@ export class GameManager {
         this._updateLivesHUD();
         
         console.log(`🎮 Sumo Sky — FIGHT! (${this.isMultiplayer ? 'MULTIPLAYER' : 'SINGLE PLAYER'})`);
+    }
+
+    /**
+     * Caches DOM element references once during start/init.
+     * @private
+     */
+    _cacheDOM() {
+        this._dom = {
+            playerFill: document.getElementById('player-health-fill'),
+            playerRed: document.getElementById('player-health-red'),
+            botFill: document.getElementById('bot-health-fill'),
+            botRed: document.getElementById('bot-health-red'),
+            playerOrbs: document.getElementById('player-orb-count'),
+            botOrbs: document.getElementById('bot-orb-count'),
+            playerOrbSlots: document.getElementById('player-orb-slots'),
+            botOrbSlots: document.getElementById('bot-orb-slots'),
+            bargeFill: document.getElementById('barge-fill'),
+            playerLives: document.getElementById('player-lives'),
+            botLives: document.getElementById('bot-lives')
+        };
     }
 
     // ─── MULTIPLAYER METHODS ─────────────────────────────
@@ -587,10 +635,11 @@ export class GameManager {
 
         // Phase 1b: Bot AI (single-player only)
         if (!this.isMultiplayer && this.botController && this.localPlayer) {
+            const activeOrb = (this.currentOrb && this.currentOrb.group.visible && this.currentOrb.isReady) ? this.currentOrb : null;
             this.botController.update(
                 deltaTime,
                 this.localPlayer.controller,
-                this.currentOrb
+                activeOrb
             );
         }
 
@@ -673,16 +722,14 @@ export class GameManager {
             const ringScale = 0.1 + easeOutCubic * 12; // Ring goes far
             const bubbleScale = 0.1 + (1 - Math.pow(1 - t, 5)) * 6; // Bubble burst is larger now
             
-            const ring = this._bargeGroup.getObjectByName("ring");
-            if (ring) {
-                ring.scale.set(ringScale, ringScale, ringScale);
-                ring.material.uniforms.uProgress.value = t;
+            if (this._bargeRingMesh) {
+                this._bargeRingMesh.scale.set(ringScale, ringScale, ringScale);
+                this._bargeRingMesh.material.uniforms.uProgress.value = t;
             }
             
-            const bubble = this._bargeGroup.getObjectByName("bubble");
-            if (bubble) {
-                bubble.scale.set(bubbleScale, bubbleScale, bubbleScale);
-                bubble.material.uniforms.uProgress.value = t;
+            if (this._bargeBubbleMesh) {
+                this._bargeBubbleMesh.scale.set(bubbleScale, bubbleScale, bubbleScale);
+                this._bargeBubbleMesh.material.uniforms.uProgress.value = t;
             }
             
             if (this._bargeTimer <= 0) {
@@ -718,36 +765,40 @@ export class GameManager {
      * @private
      */
     _updateOrb(deltaTime) {
-        // 1. Spawning Timer Logic
-        this.orbSpawnTimer += deltaTime;
-        if (this.orbSpawnTimer >= this.orbSpawnInterval) {
-            this.spawnCollectibleOrb();
-            this.orbSpawnTimer = 0;
+        // 1. Spawning Timer Logic: only tick when no visible orb is active
+        if (!this.currentOrb || !this.currentOrb.group.visible) {
+            this.orbSpawnTimer += deltaTime;
+            if (this.orbSpawnTimer >= this.orbSpawnInterval) {
+                this.spawnCollectibleOrb();
+                this.orbSpawnTimer = 0;
+            }
+            return;
         }
 
-        // 2. Update existing orb
-        if (this.currentOrb) {
-            this.currentOrb.update(deltaTime);
+        // 2. Update existing visible orb
+        this.currentOrb.update(deltaTime);
 
-            const orbPos = this.currentOrb.group.position;
+        // Only check collection when orb is fully ignited and ready
+        if (!this.currentOrb.isReady) return;
 
-            // 3a. Player collection check
-            if (this.localPlayer && this.localPlayer.controller.isAlive) {
-                const playerPos = this.localPlayer.controller.model.position;
-                const dist = playerPos.distanceTo(orbPos);
-                if (dist < 4.0) {
-                    this._collectOrb('player');
-                    return;
-                }
+        const orbPos = this.currentOrb.group.position;
+
+        // 3a. Player collection check
+        if (this.localPlayer && this.localPlayer.controller.isAlive) {
+            const playerPos = this.localPlayer.controller.model.position;
+            const dist = playerPos.distanceTo(orbPos);
+            if (dist < 4.0) {
+                this._collectOrb('player');
+                return;
             }
+        }
 
-            // 3b. Bot collection check
-            if (this.botPlayer && this.botPlayer.controller.isAlive) {
-                const botPos = this.botPlayer.controller.model.position;
-                const dist = botPos.distanceTo(orbPos);
-                if (dist < 4.0) {
-                    this._collectOrb('bot');
-                }
+        // 3b. Bot collection check
+        if (this.botPlayer && this.botPlayer.controller.isAlive) {
+            const botPos = this.botPlayer.controller.model.position;
+            const dist = botPos.distanceTo(orbPos);
+            if (dist < 4.0) {
+                this._collectOrb('bot');
             }
         }
     }
@@ -764,17 +815,15 @@ export class GameManager {
 
     /**
      * Spawns a new collectible orb on top of a random rock1 instance.
+     * Uses zero-allocation object pooling to eliminate WebGL shader compilation lag & GC pauses.
      */
     spawnCollectibleOrb() {
         if (this.state !== GameState.PLAYING) return;
 
-        // Remove old orb if it exists
-        if (this.currentOrb) {
-            this.currentOrb.destroy();
-            this.currentOrb = null;
+        if (!this.currentOrb) {
+            this.currentOrb = new CollectibleOrb();
+            this.scene.add(this.currentOrb.group);
         }
-
-        this.currentOrb = new CollectibleOrb();
 
         let x, z;
         if (this.rock1Positions.length > 0) {
@@ -785,7 +834,7 @@ export class GameManager {
             x = rock.x;
             z = rock.z;
         } else {
-            // Fallback: center of platform (shouldn't happen if positions are set)
+            // Fallback: center of platform
             x = 0;
             z = 0;
         }
@@ -793,25 +842,20 @@ export class GameManager {
         // Spawn slightly above the rock surface so it floats visibly on top
         const y = 2.0;
 
-        this.currentOrb.setPosition(x, y, z);
-        this.scene.add(this.currentOrb.group);
-        console.log(`✨ New Orb spawned on rock1 at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+        this.currentOrb.reset(x, y, z);
+        console.log(`✨ Pooled Orb spawned on rock1 at (${x.toFixed(1)}, ${z.toFixed(1)}) without frame drops`);
     }
 
     /**
-     * Triggered when the local player collects the orb.
-     * @private
-     */
-    /**
+     * Triggered when the local player or bot collects the orb.
      * @param {'player'|'bot'} collector
      * @private
      */
     _collectOrb(collector) {
         if (!this.currentOrb) return;
         
-        // Despawn orb
-        this.currentOrb.destroy();
-        this.currentOrb = null;
+        // Hide orb using zero-allocation pool (no object destruction or shader disposal)
+        this.currentOrb.hide();
         this.orbSpawnTimer = 0;
 
         if (collector === 'player') {
@@ -836,18 +880,18 @@ export class GameManager {
     
     /**
      * Triggered when a player reaches the win condition limit.
-     */
-    /**
      * @param {string} winnerName
      */
     declareWinner(winnerName = 'Player') {
         console.log(`🏆 ${winnerName} Wins!`);
         this.state = GameState.GAME_OVER;
         this.inputManager.enabled = false;
+        if (this.botController) {
+            this.botController.setPaused(true);
+        }
         
         if (this.currentOrb) {
-            this.currentOrb.destroy();
-            this.currentOrb = null;
+            this.currentOrb.hide();
         }
 
         // Show winner banner
@@ -861,37 +905,108 @@ export class GameManager {
 
     /**
      * Updates DOM HUD with current health/orb state.
-     * Called every frame — uses direct style mutation (no DOM reads).
+     * Called every frame — uses cached DOM references and dirty-flag checks.
      * @private
      */
     _updateHUD() {
-        // Player health bar
-        const playerFill = document.getElementById('player-health-fill');
-        if (playerFill && this.localPlayer) {
-            const h = this.localPlayer.controller.health;
-            playerFill.style.width = `${h}%`;
-            // Color shift: green → yellow → red
-            if (h > 60) playerFill.style.background = 'linear-gradient(90deg, #00e676, #76ff03)';
-            else if (h > 30) playerFill.style.background = 'linear-gradient(90deg, #ffab00, #ffd600)';
-            else playerFill.style.background = 'linear-gradient(90deg, #ff1744, #ff5252)';
+        if (!this._dom) this._cacheDOM();
+
+        // Player health bar & red trailing damage bar
+        if (this._dom.playerFill && this.localPlayer) {
+            const h = Math.max(0, Math.round(this.localPlayer.controller.health));
+            if (h !== this._lastHudState.playerHp) {
+                const isDamage = h < this._lastHudState.playerHp;
+                this._lastHudState.playerHp = h;
+
+                // Main health fill updates immediately
+                this._dom.playerFill.style.width = `${h}%`;
+                if (h > 60) {
+                    this._dom.playerFill.style.background = 'linear-gradient(180deg, #76ff03 0%, #00e676 50%, #00a152 100%)';
+                } else if (h > 30) {
+                    this._dom.playerFill.style.background = 'linear-gradient(180deg, #ffe500 0%, #ffab00 50%, #ff6f00 100%)';
+                } else {
+                    this._dom.playerFill.style.background = 'linear-gradient(180deg, #ff5252 0%, #ff1744 50%, #d50000 100%)';
+                }
+
+                // Trailing red damage bar smooth catch-up
+                if (this._dom.playerRed) {
+                    if (isDamage) {
+                        // Smoothly shrink after main fill
+                        setTimeout(() => {
+                            if (this._dom.playerRed) this._dom.playerRed.style.width = `${h}%`;
+                        }, 120);
+                    } else {
+                        // Instant catch-up on heal / respawn
+                        this._dom.playerRed.style.width = `${h}%`;
+                    }
+                }
+            }
         }
 
-        // Bot health bar
-        const botFill = document.getElementById('bot-health-fill');
-        if (botFill && this.botPlayer) {
-            const h = this.botPlayer.controller.health;
-            botFill.style.width = `${h}%`;
-            if (h > 60) botFill.style.background = 'linear-gradient(90deg, #00e676, #76ff03)';
-            else if (h > 30) botFill.style.background = 'linear-gradient(90deg, #ffab00, #ffd600)';
-            else botFill.style.background = 'linear-gradient(90deg, #ff1744, #ff5252)';
+        // Bot health bar & red trailing damage bar
+        if (this._dom.botFill && this.botPlayer) {
+            const h = Math.max(0, Math.round(this.botPlayer.controller.health));
+            if (h !== this._lastHudState.botHp) {
+                const isDamage = h < this._lastHudState.botHp;
+                this._lastHudState.botHp = h;
+
+                // Main health fill updates immediately
+                this._dom.botFill.style.width = `${h}%`;
+                if (h > 60) {
+                    this._dom.botFill.style.background = 'linear-gradient(180deg, #76ff03 0%, #00e676 50%, #00a152 100%)';
+                } else if (h > 30) {
+                    this._dom.botFill.style.background = 'linear-gradient(180deg, #ffe500 0%, #ffab00 50%, #ff6f00 100%)';
+                } else {
+                    this._dom.botFill.style.background = 'linear-gradient(180deg, #ff5252 0%, #ff1744 50%, #d50000 100%)';
+                }
+
+                // Trailing red damage bar smooth catch-up
+                if (this._dom.botRed) {
+                    if (isDamage) {
+                        setTimeout(() => {
+                            if (this._dom.botRed) this._dom.botRed.style.width = `${h}%`;
+                        }, 120);
+                    } else {
+                        this._dom.botRed.style.width = `${h}%`;
+                    }
+                }
+            }
         }
 
-        // Orb counts
-        const playerOrbs = document.getElementById('player-orb-count');
-        if (playerOrbs) playerOrbs.textContent = `${this.playerScore}/${this.winScore}`;
+        // Orb counts & slot indicators
+        if (this.playerScore !== this._lastHudState.playerOrbs) {
+            this._lastHudState.playerOrbs = this.playerScore;
+            if (this._dom.playerOrbs) {
+                this._dom.playerOrbs.textContent = `${this.playerScore}/${this.winScore}`;
+            }
+            if (this._dom.playerOrbSlots) {
+                const slots = this._dom.playerOrbSlots.children;
+                for (let i = 0; i < slots.length; i++) {
+                    if (i < this.playerScore) {
+                        slots[i].classList.add('active');
+                    } else {
+                        slots[i].classList.remove('active');
+                    }
+                }
+            }
+        }
 
-        const botOrbs = document.getElementById('bot-orb-count');
-        if (botOrbs) botOrbs.textContent = `${this.botScore}/${this.winScore}`;
+        if (this.botScore !== this._lastHudState.botOrbs) {
+            this._lastHudState.botOrbs = this.botScore;
+            if (this._dom.botOrbs) {
+                this._dom.botOrbs.textContent = `${this.botScore}/${this.winScore}`;
+            }
+            if (this._dom.botOrbSlots) {
+                const slots = this._dom.botOrbSlots.children;
+                for (let i = 0; i < slots.length; i++) {
+                    if (i < this.botScore) {
+                        slots[i].classList.add('active');
+                    } else {
+                        slots[i].classList.remove('active');
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -994,12 +1109,10 @@ export class GameManager {
         // Attach to the center of the victim
         spark.position.set(0, 1.0, 0); // ~Chest height relative to victim origin
         
-        // Direct the plane to face the impact splash direction
-        // Normally plane faces +Z. We use lookAt to aim it.
-        const lookTarget = new THREE.Vector3().copy(spark.position).add(
-            new THREE.Vector3(impactDir.x, impactDir.y, impactDir.z).normalize()
-        );
-        spark.lookAt(lookTarget);
+        // Direct the plane to face the impact splash direction (reusing pooled vectors)
+        this._sparkDirVec.set(impactDir.x, impactDir.y, impactDir.z).normalize();
+        this._sparkLookVec.copy(spark.position).add(this._sparkDirVec);
+        spark.lookAt(this._sparkLookVec);
 
         victimMesh.add(spark);
         spark.visible = true;
@@ -1017,19 +1130,32 @@ export class GameManager {
      */
     _updateBargeCooldownHUD(dt) {
         if (!this.localPlayer) return;
+        if (!this._dom) this._cacheDOM();
         const ctrl = this.localPlayer.controller;
-        const fill = document.getElementById('barge-fill');
+        const fill = this._dom.bargeFill;
         if (!fill) return;
 
         if (ctrl.bargeCooldown > 0) {
             // Bar recharges from 0% to 100%
-            const ratio = 1 - (ctrl.bargeCooldown / ctrl.bargeCooldownMax);
-            fill.style.width = `${ratio * 100}%`;
-            fill.classList.remove('ready');
+            const ratio = Math.round((1 - (ctrl.bargeCooldown / ctrl.bargeCooldownMax)) * 100);
+            if (ratio !== this._lastHudState.bargeRatio) {
+                this._lastHudState.bargeRatio = ratio;
+                fill.style.width = `${ratio}%`;
+            }
+            if (this._lastHudState.bargeReady) {
+                this._lastHudState.bargeReady = false;
+                fill.classList.remove('ready');
+            }
         } else {
             // Power is ready
-            fill.style.width = '100%';
-            fill.classList.add('ready');
+            if (this._lastHudState.bargeRatio !== 100) {
+                this._lastHudState.bargeRatio = 100;
+                fill.style.width = '100%';
+            }
+            if (!this._lastHudState.bargeReady) {
+                this._lastHudState.bargeReady = true;
+                fill.classList.add('ready');
+            }
         }
     }
 
@@ -1089,26 +1215,46 @@ export class GameManager {
     }
 
     /**
-     * Updates the heart icons for both player and bot lives.
+     * Updates the heart sockets for both player and bot lives.
      * @private
      */
     _updateLivesHUD() {
-        const full = '❤️';
-        const empty = '🖤';
-        const total = 2;
+        if (!this._dom) this._cacheDOM();
 
-        // Player lives
-        const playerLivesEl = document.getElementById('player-lives');
-        if (playerLivesEl && this.localPlayer) {
+        // Player lives sockets
+        if (this._dom.playerLives && this.localPlayer) {
             const lives = Math.max(0, this.localPlayer.controller.lives);
-            playerLivesEl.textContent = full.repeat(lives) + empty.repeat(Math.max(0, total - lives));
+            if (lives !== this._lastHudState.playerLives) {
+                this._lastHudState.playerLives = lives;
+                const sockets = this._dom.playerLives.querySelectorAll('.combat-hud__heart-socket');
+                sockets.forEach((socket, index) => {
+                    if (index < lives) {
+                        socket.classList.add('active');
+                        socket.classList.remove('is-lost');
+                    } else {
+                        socket.classList.remove('active');
+                        socket.classList.add('is-lost');
+                    }
+                });
+            }
         }
 
-        // Bot lives
-        const botLivesEl = document.getElementById('bot-lives');
-        if (botLivesEl && this.botPlayer) {
+        // Bot lives sockets
+        if (this._dom.botLives && this.botPlayer) {
             const lives = Math.max(0, this.botPlayer.controller.lives);
-            botLivesEl.textContent = full.repeat(lives) + empty.repeat(Math.max(0, total - lives));
+            if (lives !== this._lastHudState.botLives) {
+                this._lastHudState.botLives = lives;
+                const sockets = this._dom.botLives.querySelectorAll('.combat-hud__heart-socket');
+                sockets.forEach((socket, index) => {
+                    if (index < lives) {
+                        socket.classList.add('active');
+                        socket.classList.remove('is-lost');
+                    } else {
+                        socket.classList.remove('active');
+                        socket.classList.add('is-lost');
+                    }
+                });
+            }
         }
     }
 

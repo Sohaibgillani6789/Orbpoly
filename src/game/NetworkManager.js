@@ -356,24 +356,17 @@ export class NetworkManager {
         for (const playerDelta of snapshot.players) {
             const pid = playerDelta.id;
 
-            // Merge delta onto known state
-            let fullState;
-            if (isKeyframe) {
-                // Keyframe: use the data as-is (full state)
-                fullState = { ...playerDelta };
-            } else {
-                // Delta: merge onto last known
-                const prev = this._knownPlayerStates.get(pid);
-                if (prev) {
-                    fullState = { ...prev, ...playerDelta };
-                } else {
-                    // No previous state — treat delta as full (first packet)
-                    fullState = { ...playerDelta };
-                }
+            // Merge delta onto known state in-place
+            let fullState = this._knownPlayerStates.get(pid);
+            if (!fullState) {
+                fullState = {};
+                this._knownPlayerStates.set(pid, fullState);
             }
-
-            // Update accumulator
-            this._knownPlayerStates.set(pid, fullState);
+            if (isKeyframe) {
+                // Clear and assign keyframe
+                for (const k in fullState) delete fullState[k];
+            }
+            Object.assign(fullState, playerDelta);
 
             // Route to local or remote handler
             if (pid === this.playerId) {
@@ -454,15 +447,19 @@ export class NetworkManager {
         const renderTime = Date.now() + this._serverTimeOffset - INTERPOLATION_DELAY_MS;
 
         for (const [playerId, buffer] of this.remoteStateBuffers) {
+            let state = this.interpolatedStates.get(playerId);
+            if (!state) {
+                state = { x: 0, y: 0, z: 0, rotY: 0, anim: '', hp: 100, alive: true };
+                this.interpolatedStates.set(playerId, state);
+            }
+
             if (buffer.length < 2) {
                 // Not enough data — use latest available
                 if (buffer.length === 1) {
                     const s = buffer[0];
-                    this.interpolatedStates.set(playerId, {
-                        x: s.x, y: s.y, z: s.z,
-                        rotY: s.rotY, anim: s.anim,
-                        hp: s.hp, alive: s.alive,
-                    });
+                    state.x = s.x; state.y = s.y; state.z = s.z;
+                    state.rotY = s.rotY; state.anim = s.anim;
+                    state.hp = s.hp; state.alive = s.alive;
                 }
                 continue;
             }
@@ -482,11 +479,9 @@ export class NetworkManager {
             if (!before || !after) {
                 // Render time is outside buffer — use latest
                 const latest = buffer[buffer.length - 1];
-                this.interpolatedStates.set(playerId, {
-                    x: latest.x, y: latest.y, z: latest.z,
-                    rotY: latest.rotY, anim: latest.anim,
-                    hp: latest.hp, alive: latest.alive,
-                });
+                state.x = latest.x; state.y = latest.y; state.z = latest.z;
+                state.rotY = latest.rotY; state.anim = latest.anim;
+                state.hp = latest.hp; state.alive = latest.alive;
                 continue;
             }
 
@@ -506,13 +501,13 @@ export class NetworkManager {
             if (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
             const iRotY = before.rotY + rotDiff * ct;
 
-            this.interpolatedStates.set(playerId, {
-                x: ix, y: iy, z: iz,
-                rotY: iRotY,
-                anim: after.anim,  // Use more recent animation state
-                hp: after.hp,
-                alive: after.alive,
-            });
+            state.x = ix;
+            state.y = iy;
+            state.z = iz;
+            state.rotY = iRotY;
+            state.anim = after.anim;
+            state.hp = after.hp;
+            state.alive = after.alive;
         }
     }
 

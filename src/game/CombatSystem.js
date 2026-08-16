@@ -44,6 +44,12 @@ export class CombatSystem {
 
         /** @private Minimum ms between repeated hits on same pair */
         this._hitCooldown = 300;
+
+        /** @private Reusable impulse vector for knockbacks/nudges */
+        this._impulseVec = new CANNON.Vec3();
+
+        /** @private Timestamp of last hit map cleanup */
+        this._lastCleanup = Date.now();
     }
 
     /**
@@ -85,9 +91,19 @@ export class CombatSystem {
         const otherPlayer = otherBody.playerController;
         if (!otherPlayer || !otherPlayer.isAlive || !player.isAlive) return;
 
+        const now = Date.now();
+        // Periodic cleanup of recent hits (every 5s)
+        if (now - this._lastCleanup > 5000) {
+            this._lastCleanup = now;
+            for (const [key, time] of this._recentHits) {
+                if (now - time > 1000) {
+                    this._recentHits.delete(key);
+                }
+            }
+        }
+
         // Deduplicate: prevent same collision from being processed by both bodies
         const pairKey = this._getPairKey(player.body.id, otherBody.id);
-        const now = Date.now();
         const lastHit = this._recentHits.get(pairKey);
 
         if (lastHit && (now - lastHit) < this._hitCooldown) return;
@@ -104,10 +120,12 @@ export class CombatSystem {
 
     /**
      * @private
-     * Generates a consistent key for a pair of body IDs (order-independent).
+     * Generates a consistent numeric key for a pair of body IDs (order-independent).
      */
     _getPairKey(idA, idB) {
-        return idA < idB ? `${idA}-${idB}` : `${idB}-${idA}`;
+        const min = idA < idB ? idA : idB;
+        const max = idA < idB ? idB : idA;
+        return (min << 16) | (max & 0xffff);
     }
 
     /**
@@ -131,13 +149,13 @@ export class CombatSystem {
         const multiplier = 1 + (victim.damagePercent / 100);
         const totalForce = this._basePower * multiplier;
 
-        const impulse = new CANNON.Vec3(
+        this._impulseVec.set(
             dirX * totalForce,
             this._liftForce,   // Pop-up effect
             dirZ * totalForce
         );
 
-        victim.receiveHit(impulse);
+        victim.receiveHit(this._impulseVec);
 
         // Notify listeners
         for (const cb of this._onHitCallbacks) {
@@ -161,13 +179,13 @@ export class CombatSystem {
 
         if (length < 0.001) return;
 
-        const impulse = new CANNON.Vec3(
+        this._impulseVec.set(
             (dx / length) * this._nudgeForce,
             0.5,
             (dz / length) * this._nudgeForce
         );
 
-        other.body.applyImpulse(impulse);
+        other.body.applyImpulse(this._impulseVec);
     }
 
     /**

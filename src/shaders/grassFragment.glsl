@@ -23,8 +23,6 @@ varying vec2 vUv;
 varying vec2 cloudUV;
 varying vec3 vColor;
 varying float vHeight;
-varying vec3 vWorldPos;
-varying vec3 vWorldNormal;
 varying vec2 vGrassVariation;
 varying vec3 vAmbientInfluence;
 varying float vNdotL;

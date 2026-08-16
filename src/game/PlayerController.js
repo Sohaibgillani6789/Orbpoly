@@ -390,6 +390,30 @@ export class PlayerController {
     }
 
     /**
+     * Helper to cache and return all emissive materials on the character model.
+     * @private
+     * @returns {THREE.Material[]}
+     */
+    _getMeshMaterials() {
+        if (!this._cachedMaterials) {
+            this._cachedMaterials = [];
+            this.model.traverse((child) => {
+                if (child.isMesh && child.material) {
+                    const mats = Array.isArray(child.material) ? child.material : [child.material];
+                    mats.forEach(m => {
+                        if (m.emissive !== undefined) {
+                            m._origEmissive = m._origEmissive || { r: m.emissive.r, g: m.emissive.g, b: m.emissive.b };
+                            m._origEmissiveIntensity = m._origEmissiveIntensity ?? m.emissiveIntensity;
+                            this._cachedMaterials.push(m);
+                        }
+                    });
+                }
+            });
+        }
+        return this._cachedMaterials;
+    }
+
+    /**
      * Briefly sets emissive to red on all child meshes, then reverts.
      * Creates a visible "damage flash" regardless of animation state.
      * @private
@@ -400,34 +424,23 @@ export class PlayerController {
             this._hitFlashTimeout = null;
         }
 
-        // Apply red flash
-        this.model.traverse((child) => {
-            if (child.isMesh && child.material) {
-                const mats = Array.isArray(child.material) ? child.material : [child.material];
-                mats.forEach(m => {
-                    if (m.emissive !== undefined) {
-                        m._origEmissive = m._origEmissive || { r: m.emissive.r, g: m.emissive.g, b: m.emissive.b };
-                        m._origEmissiveIntensity = m._origEmissiveIntensity ?? m.emissiveIntensity;
-                        m.emissive.setRGB(1, 0, 0);
-                        m.emissiveIntensity = 2.5;
-                    }
-                });
-            }
-        });
+        const mats = this._getMeshMaterials();
+        for (let i = 0; i < mats.length; i++) {
+            const m = mats[i];
+            m.emissive.setRGB(1, 0, 0);
+            m.emissiveIntensity = 2.5;
+        }
 
         // Revert after 220ms
         this._hitFlashTimeout = setTimeout(() => {
-            this.model.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    const mats = Array.isArray(child.material) ? child.material : [child.material];
-                    mats.forEach(m => {
-                        if (m.emissive !== undefined && m._origEmissive) {
-                            m.emissive.setRGB(m._origEmissive.r, m._origEmissive.g, m._origEmissive.b);
-                            m.emissiveIntensity = m._origEmissiveIntensity ?? 0;
-                        }
-                    });
+            const matsToRevert = this._getMeshMaterials();
+            for (let i = 0; i < matsToRevert.length; i++) {
+                const m = matsToRevert[i];
+                if (m._origEmissive) {
+                    m.emissive.setRGB(m._origEmissive.r, m._origEmissive.g, m._origEmissive.b);
+                    m.emissiveIntensity = m._origEmissiveIntensity ?? 0;
                 }
-            });
+            }
             this._hitFlashTimeout = null;
         }, 220);
     }
@@ -442,17 +455,14 @@ export class PlayerController {
         if (this._hitFlashTimeout) {
             clearTimeout(this._hitFlashTimeout);
             // Revert any emissive flash so death pose looks correct
-            this.model.traverse((child) => {
-                if (child.isMesh && child.material) {
-                    const mats = Array.isArray(child.material) ? child.material : [child.material];
-                    mats.forEach(m => {
-                        if (m.emissive !== undefined && m._origEmissive) {
-                            m.emissive.setRGB(m._origEmissive.r, m._origEmissive.g, m._origEmissive.b);
-                            m.emissiveIntensity = m._origEmissiveIntensity ?? 0;
-                        }
-                    });
+            const mats = this._getMeshMaterials();
+            for (let i = 0; i < mats.length; i++) {
+                const m = mats[i];
+                if (m._origEmissive) {
+                    m.emissive.setRGB(m._origEmissive.r, m._origEmissive.g, m._origEmissive.b);
+                    m.emissiveIntensity = m._origEmissiveIntensity ?? 0;
                 }
-            });
+            }
             this._hitFlashTimeout = null;
         }
         this.animStateMachine.forceUnlock();

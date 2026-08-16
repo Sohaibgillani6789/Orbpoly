@@ -10,8 +10,13 @@ export class HUD {
         /** @type {HTMLElement} */
         this.container = null;
 
-        /** @type {Map<string, HTMLElement>} playerId → DOM element */
+        /** @type {Map<string, { el: HTMLElement, damageDisplay: HTMLElement, livesDisplay: HTMLElement }>} playerId → DOM element cache */
         this.playerElements = new Map();
+
+        /** @private Scratch vector for 3D projection (zero heap allocations per frame) */
+        this._projVec = new THREE.Vector3();
+        /** @private Scratch result object for projection */
+        this._projResult = { x: 0, y: 0, visible: true };
 
         this._createContainer();
     }
@@ -44,7 +49,11 @@ export class HUD {
             <div class="lives-display"></div>
         `;
         this.container.appendChild(el);
-        this.playerElements.set(playerId, el);
+        this.playerElements.set(playerId, {
+            el,
+            damageDisplay: el.querySelector('.damage-display'),
+            livesDisplay: el.querySelector('.lives-display')
+        });
     }
 
     /**
@@ -55,29 +64,31 @@ export class HUD {
      * @param {{ x: number, y: number, visible: boolean }} screenPos
      */
     updatePlayer(playerId, damagePercent, lives, screenPos) {
-        const el = this.playerElements.get(playerId);
-        if (!el) return;
+        const item = this.playerElements.get(playerId);
+        if (!item) return;
 
         // Position on screen
-        el.style.transform = `translate(-50%, -100%) translate(${screenPos.x}px, ${screenPos.y}px)`;
+        item.el.style.transform = `translate(-50%, -100%) translate(${screenPos.x}px, ${screenPos.y}px)`;
 
         // Damage text
-        const damageDisplay = el.querySelector('.damage-display');
-        damageDisplay.textContent = `${Math.round(damagePercent)}%`;
+        if (item.damageDisplay) {
+            item.damageDisplay.textContent = `${Math.round(damagePercent)}%`;
 
-        // Color shift: white(0%) → yellow(75%) → red(150%+)
-        const t = Math.min(damagePercent / 150, 1);
-        const r = 255;
-        const g = Math.round(255 * (1 - t * 0.8));
-        const b = Math.round(255 * (1 - t));
-        damageDisplay.style.color = `rgb(${r}, ${g}, ${b})`;
+            // Color shift: white(0%) → yellow(75%) → red(150%+)
+            const t = Math.min(damagePercent / 150, 1);
+            const r = 255;
+            const g = Math.round(255 * (1 - t * 0.8));
+            const b = Math.round(255 * (1 - t));
+            item.damageDisplay.style.color = `rgb(${r}, ${g}, ${b})`;
+        }
 
         // Lives display (hearts)
-        const livesDisplay = el.querySelector('.lives-display');
-        livesDisplay.textContent = '❤️'.repeat(Math.max(0, lives));
+        if (item.livesDisplay) {
+            item.livesDisplay.textContent = '❤️'.repeat(Math.max(0, lives));
+        }
 
         // Visibility
-        el.style.display = screenPos.visible ? 'block' : 'none';
+        item.el.style.display = screenPos.visible ? 'block' : 'none';
     }
 
     /**
@@ -85,13 +96,13 @@ export class HUD {
      * @param {string} playerId
      */
     showKO(playerId) {
-        const el = this.playerElements.get(playerId);
-        if (!el) return;
+        const item = this.playerElements.get(playerId);
+        if (!item) return;
 
         const ko = document.createElement('div');
         ko.className = 'ko-flash';
         ko.textContent = 'KO!';
-        el.appendChild(ko);
+        item.el.appendChild(ko);
 
         // Auto-remove after animation
         setTimeout(() => {
@@ -106,17 +117,15 @@ export class HUD {
      * @returns {{ x: number, y: number, visible: boolean }}
      */
     projectToScreen(position3D, camera) {
-        const pos = position3D.clone();
-        pos.y += 2.0; // Offset above character head
-        pos.project(camera);
+        this._projVec.copy(position3D);
+        this._projVec.y += 2.0; // Offset above character head
+        this._projVec.project(camera);
 
-        const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
-        const y = (pos.y * -0.5 + 0.5) * window.innerHeight;
+        this._projResult.x = (this._projVec.x * 0.5 + 0.5) * window.innerWidth;
+        this._projResult.y = (this._projVec.y * -0.5 + 0.5) * window.innerHeight;
+        this._projResult.visible = this._projVec.z < 1;
 
-        // Behind camera check
-        const visible = pos.z < 1;
-
-        return { x, y, visible };
+        return this._projResult;
     }
 
     /**
@@ -124,9 +133,9 @@ export class HUD {
      * @param {string} playerId
      */
     removePlayer(playerId) {
-        const el = this.playerElements.get(playerId);
-        if (el) {
-            el.remove();
+        const item = this.playerElements.get(playerId);
+        if (item) {
+            item.el.remove();
             this.playerElements.delete(playerId);
         }
     }

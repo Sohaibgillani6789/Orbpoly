@@ -15,6 +15,7 @@ import { Tree } from '@dgreenheck/ez-tree';
 import { GameManager } from './game/GameManager.js';
 import { NetworkManager } from './game/NetworkManager.js';
 import { DustMotes } from './game/DustMotes.js';
+import { PerfMonitor } from './game/PerfMonitor.js';
 
 // All available character IDs for random bot selection
 const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'];
@@ -264,40 +265,67 @@ function generateBlade(center, vArrOffset, uv) {
 
 
 function generateField() {
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-    const colors = [];
+    const VERTEX_COUNT = 5;
+    const posBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 3);
+    const uvBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 2);
+    const colorBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 3);
+    const indexBuffer = new Uint32Array(BLADE_COUNT * 9);
+
+    let posIdx = 0;
+    let uvIdx = 0;
+    let colorIdx = 0;
+    let elemIdx = 0;
+
+    const surfaceMin = (PLANE_SIZE / 2) * -1;
+    const surfaceMax = PLANE_SIZE / 2;
+    const radius = PLANE_SIZE / 2;
+    const centerPos = new THREE.Vector3();
 
     for (let i = 0; i < BLADE_COUNT; i++) {
-        const VERTEX_COUNT = 5;
-        const radius = PLANE_SIZE / 2;
         const r = radius * Math.sqrt(Math.random());
         const theta = Math.random() * 2 * Math.PI;
-        const x = r * Math.cos(theta);
-        const y = r * Math.sin(theta);
-        const pos = new THREE.Vector3(x, 0, y);
+        centerPos.set(r * Math.cos(theta), 0, r * Math.sin(theta));
 
-        const surfaceMin = PLANE_SIZE / 2 * -1;
-        const surfaceMax = PLANE_SIZE / 2;
-        const uv = [
-            convertRange(pos.x, surfaceMin, surfaceMax, 0, 1),
-            convertRange(pos.z, surfaceMin, surfaceMax, 0, 1)
-        ];
-        const blade = generateBlade(pos, i * VERTEX_COUNT, uv);
-        blade.verts.forEach(vert => {
-            positions.push(...vert.pos);
-            uvs.push(...vert.uv);
-            colors.push(...vert.color);
-        });
-        blade.indices.forEach(indice => indices.push(indice));
+        const u = convertRange(centerPos.x, surfaceMin, surfaceMax, 0, 1);
+        const v = convertRange(centerPos.z, surfaceMin, surfaceMax, 0, 1);
+        const uv = [u, v];
+
+        const vArrOffset = i * VERTEX_COUNT;
+        const blade = generateBlade(centerPos, vArrOffset, uv);
+
+        for (let j = 0; j < VERTEX_COUNT; j++) {
+            const vert = blade.verts[j];
+            posBuffer[posIdx++] = vert.pos[0];
+            posBuffer[posIdx++] = vert.pos[1];
+            posBuffer[posIdx++] = vert.pos[2];
+
+            uvBuffer[uvIdx++] = vert.uv[0];
+            uvBuffer[uvIdx++] = vert.uv[1];
+
+            colorBuffer[colorIdx++] = vert.color[0];
+            colorBuffer[colorIdx++] = vert.color[1];
+            colorBuffer[colorIdx++] = vert.color[2];
+        }
+
+        for (let k = 0; k < 9; k++) {
+            indexBuffer[elemIdx++] = blade.indices[k];
+        }
     }
 
     const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-    geom.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-    geom.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
-    geom.setIndex(indices);
+    const posAttr = new THREE.BufferAttribute(posBuffer, 3);
+    posAttr.usage = THREE.StaticDrawUsage;
+    geom.setAttribute('position', posAttr);
+
+    const uvAttr = new THREE.BufferAttribute(uvBuffer, 2);
+    uvAttr.usage = THREE.StaticDrawUsage;
+    geom.setAttribute('uv', uvAttr);
+
+    const colorAttr = new THREE.BufferAttribute(colorBuffer, 3);
+    colorAttr.usage = THREE.StaticDrawUsage;
+    geom.setAttribute('color', colorAttr);
+
+    geom.setIndex(new THREE.BufferAttribute(indexBuffer, 1));
 
     const mesh = new THREE.Mesh(geom, grassMaterial);
     geom.computeBoundingSphere(); // Frustum culling (opt.md §5)
@@ -1080,6 +1108,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85; // Brighter for daytime
+renderer.shadowMap.enabled = false;   // Explicitly disable shadow maps (Phase 7)
+
+const perfMonitor = new PerfMonitor(renderer);
 
 window.addEventListener('resize', () => {
     // Update sizes
@@ -1112,8 +1143,10 @@ const _targetLookPos = new THREE.Vector3();
 
 const tick = () => {
     const elapsedTime = clock.getElapsedTime()
-    const deltaTime = elapsedTime - previousTime;
+    const rawDelta = elapsedTime - previousTime;
     previousTime = elapsedTime;
+    // Phase 5: Delta-time clamping (cap maximum step to 50ms / 20FPS floor to prevent tab-switch physics explosions)
+    const deltaTime = Math.min(rawDelta, 0.05);
 
     // Camera sweep animation — starts below island, sweeps up to scene view
     if (cameraAnimation.active) {
@@ -1166,98 +1199,96 @@ const tick = () => {
     dustMotes.update(deltaTime, elapsedTime);
 
     // ============================================================
-    // MOOD TRANSITION SYSTEM — smooth lerp toward target mood
+    // MOOD TRANSITION SYSTEM — lerp toward target mood only when active
     // ============================================================
     const target = MOOD_PROFILES[targetMoodKey];
     if (target) {
-        // Frame-rate independent smooth lerp factor
-        // Using 1 - exp(-speed * dt) for perfectly smooth exponential decay
-        const lerpFactor = 1.0 - Math.exp(-LERP_SPEED * 2.5 * deltaTime);
+        if (currentMoodKey !== targetMoodKey) {
+            // Frame-rate independent smooth lerp factor
+            const lerpFactor = 1.0 - Math.exp(-LERP_SPEED * 2.5 * deltaTime);
 
-        // --- Sky uniforms ---
-        skyUniforms.uSkyColorTop.value.lerp(target.skyColorTop, lerpFactor);
-        skyUniforms.uSkyColorBottom.value.lerp(target.skyColorBottom, lerpFactor);
-        skyUniforms.uCloudColor.value.lerp(target.cloudColor, lerpFactor);
-        skyUniforms.uCloudShadowColor.value.lerp(target.cloudShadowColor, lerpFactor);
-        skyUniforms.uSunPosition.value.lerp(target.sunPosition, lerpFactor);
-        skyUniforms.uSunIntensity.value = THREE.MathUtils.lerp(skyUniforms.uSunIntensity.value, target.sunIntensity, lerpFactor);
-        skyUniforms.uNightBlend.value = THREE.MathUtils.lerp(skyUniforms.uNightBlend.value, target.nightBlend, lerpFactor);
+            // --- Sky uniforms ---
+            skyUniforms.uSkyColorTop.value.lerp(target.skyColorTop, lerpFactor);
+            skyUniforms.uSkyColorBottom.value.lerp(target.skyColorBottom, lerpFactor);
+            skyUniforms.uCloudColor.value.lerp(target.cloudColor, lerpFactor);
+            skyUniforms.uCloudShadowColor.value.lerp(target.cloudShadowColor, lerpFactor);
+            skyUniforms.uSunPosition.value.lerp(target.sunPosition, lerpFactor);
+            skyUniforms.uSunIntensity.value = THREE.MathUtils.lerp(skyUniforms.uSunIntensity.value, target.sunIntensity, lerpFactor);
+            skyUniforms.uNightBlend.value = THREE.MathUtils.lerp(skyUniforms.uNightBlend.value, target.nightBlend, lerpFactor);
 
-        // --- Scene lights ---
-        ambientLight.color.lerp(target.ambientColor, lerpFactor);
-        ambientLight.intensity = THREE.MathUtils.lerp(ambientLight.intensity, target.ambientIntensity, lerpFactor);
-        moonLight.color.lerp(target.directionalColor, lerpFactor);
-        moonLight.intensity = THREE.MathUtils.lerp(moonLight.intensity, target.directionalIntensity, lerpFactor);
+            // --- Scene lights ---
+            ambientLight.color.lerp(target.ambientColor, lerpFactor);
+            ambientLight.intensity = THREE.MathUtils.lerp(ambientLight.intensity, target.ambientIntensity, lerpFactor);
+            moonLight.color.lerp(target.directionalColor, lerpFactor);
+            moonLight.intensity = THREE.MathUtils.lerp(moonLight.intensity, target.directionalIntensity, lerpFactor);
 
-        // --- Sync rock uniforms with scene lights ---
-        rockUniforms.uLightColor.value.copy(moonLight.color);
-        rockUniforms.uAmbientColor.value.copy(ambientLight.color);
+            // --- Sync rock uniforms with scene lights ---
+            rockUniforms.uLightColor.value.copy(moonLight.color);
+            rockUniforms.uAmbientColor.value.copy(ambientLight.color);
 
-        // --- Sync grass sun direction + ambient color ---
-        grassUniforms.uSunDirection.value.copy(skyUniforms.uSunPosition.value).normalize();
-        grassUniforms.uAmbientLightColor.value.copy(ambientLight.color);
+            // --- Sync grass sun direction + ambient color ---
+            grassUniforms.uSunDirection.value.copy(skyUniforms.uSunPosition.value).normalize();
+            grassUniforms.uAmbientLightColor.value.copy(ambientLight.color);
 
-        // --- Grass mood tinting ---
-        grassUniforms.uMoodTint.value.lerp(target.grassTint, lerpFactor);
-        grassUniforms.uMoodTintStrength.value = THREE.MathUtils.lerp(grassUniforms.uMoodTintStrength.value, target.grassTintStrength, lerpFactor);
+            // --- Grass mood tinting ---
+            grassUniforms.uMoodTint.value.lerp(target.grassTint, lerpFactor);
+            grassUniforms.uMoodTintStrength.value = THREE.MathUtils.lerp(grassUniforms.uMoodTintStrength.value, target.grassTintStrength, lerpFactor);
 
-        // --- Renderer sync ---
-        _scratchColor.copy(renderer.getClearColor(_scratchColor));
-        _scratchColor.lerp(target.clearColor, lerpFactor);
-        renderer.setClearColor(_scratchColor);
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(renderer.toneMappingExposure, target.exposure, lerpFactor);
+            // --- Renderer sync ---
+            _scratchColor.copy(renderer.getClearColor(_scratchColor));
+            _scratchColor.lerp(target.clearColor, lerpFactor);
+            renderer.setClearColor(_scratchColor);
+            renderer.toneMappingExposure = THREE.MathUtils.lerp(renderer.toneMappingExposure, target.exposure, lerpFactor);
 
-        // --- Fog transition (FogExp2 density + color) ---
-        if (sceneFog) {
-            sceneFog.color.lerp(target.fogColor, lerpFactor);
-            sceneFog.density = THREE.MathUtils.lerp(sceneFog.density, target.fogDensity, lerpFactor);
+            // --- Fog transition (FogExp2 density + color) ---
+            if (sceneFog) {
+                sceneFog.color.lerp(target.fogColor, lerpFactor);
+                sceneFog.density = THREE.MathUtils.lerp(sceneFog.density, target.fogDensity, lerpFactor);
+            }
+
+            // --- Sync fog uniforms to custom shaders ---
+            grassUniforms.uFogColor.value.copy(sceneFog.color);
+            grassUniforms.uFogDensity.value = sceneFog.density;
+            rockUniforms.uFogColor.value.copy(sceneFog.color);
+            rockUniforms.uFogDensity.value = sceneFog.density;
+
+            // --- Moon sky glow ---
+            const targetGlow = target.moonGlow || 0.0;
+            skyUniforms.uMoonGlow.value = THREE.MathUtils.lerp(skyUniforms.uMoonGlow.value, targetGlow, lerpFactor);
+
+            // --- Grass cloud shadow mix ---
+            grassUniforms.uCloudMix.value = THREE.MathUtils.lerp(grassUniforms.uCloudMix.value, target.cloudMix, lerpFactor);
+
+            // --- Dust motes mood transition ---
+            if (target.moteColor) {
+                _moteScratchColor.copy(dustMotes._uniforms.uColor.value);
+                _moteScratchColor.lerp(target.moteColor, lerpFactor);
+                const moteOpacity = THREE.MathUtils.lerp(dustMotes._uniforms.uOpacity.value, target.moteOpacity, lerpFactor);
+                const moteSpeed = THREE.MathUtils.lerp(dustMotes._speedMul, target.moteSpeed, lerpFactor);
+                dustMotes.setMood(_moteScratchColor, moteOpacity, moteSpeed);
+            }
+
+            // Check if transition is complete
+            if (skyUniforms.uSkyColorTop.value.getHex() === target.skyColorTop.getHex()) {
+                currentMoodKey = targetMoodKey;
+            }
         }
-
-        // --- Sync fog uniforms to custom shaders ---
-        grassUniforms.uFogColor.value.copy(sceneFog.color);
-        grassUniforms.uFogDensity.value = sceneFog.density;
-        rockUniforms.uFogColor.value.copy(sceneFog.color);
-        rockUniforms.uFogDensity.value = sceneFog.density;
-
-        // --- Moon sky glow ---
-        const targetGlow = target.moonGlow || 0.0;
-        skyUniforms.uMoonGlow.value = THREE.MathUtils.lerp(skyUniforms.uMoonGlow.value, targetGlow, lerpFactor);
-
-        // --- Grass cloud shadow mix ---
-        grassUniforms.uCloudMix.value = THREE.MathUtils.lerp(grassUniforms.uCloudMix.value, target.cloudMix, lerpFactor);
-
-        // --- Dust motes mood transition ---
-        if (target.moteColor) {
-            _moteScratchColor.copy(dustMotes._uniforms.uColor.value);
-            _moteScratchColor.lerp(target.moteColor, lerpFactor);
-            const moteOpacity = THREE.MathUtils.lerp(dustMotes._uniforms.uOpacity.value, target.moteOpacity, lerpFactor);
-            const moteSpeed = THREE.MathUtils.lerp(dustMotes._speedMul, target.moteSpeed, lerpFactor);
-            dustMotes.setMood(_moteScratchColor, moteOpacity, moteSpeed);
-        }
-
-        // Track current mood when transition is effectively complete
-        const dist = skyUniforms.uSkyColorTop.value.getHex() === target.skyColorTop.getHex();
-        if (dist) currentMoodKey = targetMoodKey;
 
         // --- AUTO CYCLE: advance to next mood after hold period ---
-        if (autoCycleActive) {
-            if (currentMoodKey === targetMoodKey) {
-                // Transition settled — accumulate hold time
-                if (!moodSettled) {
-                    moodSettled = true;
-                    moodHoldTimer = 0.0;
-                    console.log(`🌤️ Settled at: ${currentMoodKey} — holding for ${MOOD_HOLD_DURATION}s`);
-                }
-                moodHoldTimer += deltaTime;
+        if (autoCycleActive && currentMoodKey === targetMoodKey) {
+            if (!moodSettled) {
+                moodSettled = true;
+                moodHoldTimer = 0.0;
+                console.log(`🌤️ Settled at: ${currentMoodKey} — holding for ${MOOD_HOLD_DURATION}s`);
+            }
+            moodHoldTimer += deltaTime;
 
-                if (moodHoldTimer >= MOOD_HOLD_DURATION) {
-                    // Advance to next mood in sequence
-                    currentSequenceIndex = (currentSequenceIndex + 1) % MOOD_SEQUENCE.length;
-                    const nextMood = MOOD_SEQUENCE[currentSequenceIndex];
-                    moodSettled = false;
-                    moodHoldTimer = 0.0;
-                    transitionTo(nextMood);
-                }
+            if (moodHoldTimer >= MOOD_HOLD_DURATION) {
+                currentSequenceIndex = (currentSequenceIndex + 1) % MOOD_SEQUENCE.length;
+                const nextMood = MOOD_SEQUENCE[currentSequenceIndex];
+                moodSettled = false;
+                moodHoldTimer = 0.0;
+                transitionTo(nextMood);
             }
         }
     }
@@ -1305,6 +1336,14 @@ const tick = () => {
 
     // Render directly (no post-processing)
     renderer.render(scene, camera)
+
+    // Render character preview (separate canvas, only when char-select is visible)
+    if (window.__updateCharPreview) {
+        window.__updateCharPreview(deltaTime);
+    }
+
+    // Update real-time performance statistics
+    perfMonitor.update();
 
     // Call tick again on the next frame
     window.requestAnimationFrame(tick)
@@ -1451,83 +1490,337 @@ function initializeScene() {
         sound.play();
     }
 
-    // ── Character Selection UI — Horizontal Card Scroller ──
+    // ── Character Selection UI — 3D Model Preview System ──
     const uiRoot = document.getElementById('ui-root');
     console.log('🔍 uiRoot found:', !!uiRoot);
     if (uiRoot) {
         uiRoot.addEventListener('pointerdown', (e) => e.stopPropagation());
     }
-    const track = document.getElementById('cs-track');
     const arrowLeft = document.getElementById('cs-arrow-left');
     const arrowRight = document.getElementById('cs-arrow-right');
+    const charNameEl = document.getElementById('cs-char-name');
+    const previewCanvas = document.getElementById('cs-preview-canvas');
+    const modelArea = document.getElementById('cs-model-area');
 
-    // Note: UI reveal is now handled in tick() after camera animation finishes
+    // ── Controls Modal Toggle ──
+    const ctrlBtn = document.getElementById('btn-controls');
+    const ctrlModal = document.getElementById('cs-controls-modal');
+    const ctrlClose = document.getElementById('btn-controls-close');
 
+    function openControlsModal() {
+        if (ctrlModal) ctrlModal.classList.add('is-open');
+    }
+    function closeControlsModal() {
+        if (ctrlModal) ctrlModal.classList.remove('is-open');
+    }
 
+    if (ctrlBtn) {
+        ctrlBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        ctrlBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            ctrlModal.classList.contains('is-open') ? closeControlsModal() : openControlsModal();
+        });
+    }
+    if (ctrlClose) {
+        ctrlClose.addEventListener('pointerdown', (e) => e.stopPropagation());
+        ctrlClose.addEventListener('click', (e) => { e.stopPropagation(); closeControlsModal(); });
+    }
+    // Click outside the panel to close
+    if (ctrlModal) {
+        ctrlModal.addEventListener('click', (e) => {
+            if (e.target === ctrlModal) closeControlsModal();
+        });
+    }
 
-    // Handle Custom Carousel logic
-    let activeCardIndex = 0;
-    const cards = Array.from(document.querySelectorAll('.char-card'));
+    // ── Preview Scene Setup ──
+    const previewScene = new THREE.Scene();
 
-    function updateCarousel(newIndex) {
-        if (newIndex < 0 || newIndex >= cards.length) return;
+    // Lighting for preview — Bright daytime sky-blue setup matching game atmosphere
+    const previewAmbient = new THREE.AmbientLight(0xf0f9ff, 1.05);
+    previewScene.add(previewAmbient);
 
-        cards.forEach((card, idx) => {
-            card.classList.remove('is-active', 'out-left', 'out-right');
-            if (idx === newIndex) {
-                card.classList.add('is-active');
-            } else if (idx < newIndex) {
-                card.classList.add('out-left');
-            } else {
-                card.classList.add('out-right');
+    // Warm Direct Sunlight (top-right front)
+    const previewKey = new THREE.DirectionalLight(0xfffaed, 2.4);
+    previewKey.position.set(3.5, 5.0, 4.5);
+    previewScene.add(previewKey);
+
+    // Vibrant Sky-Blue Fill Light (left back)
+    const previewFill = new THREE.DirectionalLight(0x38bdf8, 0.8);
+    previewFill.position.set(-3.5, 2.5, -2.0);
+    previewScene.add(previewFill);
+
+    // Bright White Cloud Rim Light (directly behind model for crisp highlight)
+    const previewRim = new THREE.DirectionalLight(0xffffff, 1.5);
+    previewRim.position.set(0, 3.0, -4.0);
+    previewScene.add(previewRim);
+
+    // Ambient Emerald Green Floor Glow (reflects green pedestal shadow light upwards onto feet)
+    const previewFloorGlow = new THREE.PointLight(0x10b981, 1.5, 6.0);
+    previewFloorGlow.position.set(0, -0.2, 0.5);
+    previewScene.add(previewFloorGlow);
+
+    // Camera — positioned to frame full character model (head to feet)
+    const previewCamera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+    previewCamera.position.set(0, 2.0, 6.5);
+    previewCamera.lookAt(0, 1.2, 0);
+
+    // Renderer — targets the preview canvas
+    let previewRenderer = null;
+    if (previewCanvas) {
+        previewRenderer = new THREE.WebGLRenderer({
+            canvas: previewCanvas,
+            alpha: true,
+            antialias: true,
+            powerPreference: 'high-performance'
+        });
+        previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
+        previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+        previewRenderer.toneMappingExposure = 1.0;
+        previewRenderer.setClearColor(0x000000, 0); // Transparent background
+    }
+
+    // ── Model Cache & State ──
+    const characterList = ALL_CHARACTERS; // ['warrior','wizard','rogue','ranger','monk','cleric']
+    let activeCharIndex = 0;
+    const modelCache = new Map(); // charId -> { model, animations, mixer }
+    let currentPreviewModel = null;
+    let currentPreviewMixer = null;
+    let previewActive = true;
+    let isLoadingPreview = false;
+
+    // ── Drag-to-Rotate State ──
+    let isDraggingPreview = false;
+    let previewDragStartX = 0;
+    let previewModelYaw = 0; // current yaw angle
+    let previewTargetYaw = 0;
+    let autoRotateSpeed = 0.3; // radians per second when not dragging
+    let lastDragTime = 0;
+
+    /**
+     * Loads a character GLTF for preview (cached).
+     * Returns { model, animations, mixer } with model positioned at origin.
+     */
+    async function loadPreviewCharacter(charId) {
+        // Return from cache if available
+        if (modelCache.has(charId)) {
+            return modelCache.get(charId);
+        }
+
+        const gltfLoader = new GLTFLoader();
+        const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
+
+        const gltf = await new Promise((resolve, reject) => {
+            gltfLoader.load(`/models/characters/${modelName}.gltf`, resolve, undefined, reject);
+        });
+
+        const { scene: model, animations = [] } = gltf;
+
+        // Position at origin for preview
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+
+        model.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = false;
+                child.receiveShadow = false;
             }
         });
 
+        // Create animation mixer
+        const mixer = new THREE.AnimationMixer(model);
 
+        const result = { model, animations, mixer, name: modelName };
+        modelCache.set(charId, result);
 
-        activeCardIndex = newIndex;
+        console.log(`✅ Preview: ${modelName} loaded (${animations.length} animations)`);
+        return result;
     }
 
-    // Initial setup
-    cards.forEach((card, idx) => {
-        if (idx !== 0) card.classList.add('out-right');
-        else card.classList.add('is-active');
-    });
+    /**
+     * Shows a character model in the preview scene.
+     * Removes the previous model, adds the new one, starts idle animation.
+     */
+    async function showPreviewCharacter(charId) {
+        if (isLoadingPreview) return;
+        isLoadingPreview = true;
 
+        try {
+            // Remove current model from preview scene
+            if (currentPreviewModel) {
+                previewScene.remove(currentPreviewModel);
+            }
+            if (currentPreviewMixer) {
+                currentPreviewMixer.stopAllAction();
+            }
+
+            const data = await loadPreviewCharacter(charId);
+            currentPreviewModel = data.model;
+            currentPreviewMixer = data.mixer;
+
+            // Reset rotation to current yaw
+            currentPreviewModel.rotation.y = previewModelYaw;
+
+            // Add to preview scene
+            previewScene.add(currentPreviewModel);
+
+            // Start idle animation if available
+            if (data.animations.length > 0) {
+                // Prefer 'Idle' animation, fallback to first
+                const idleClip = data.animations.find(a =>
+                    a.name.toLowerCase().includes('idle')
+                ) || data.animations[0];
+
+                const action = currentPreviewMixer.clipAction(idleClip);
+                action.reset().fadeIn(0.3).play();
+            }
+
+            // Update character name with swap animation
+            if (charNameEl) {
+                charNameEl.classList.add('is-swapping');
+                setTimeout(() => {
+                    charNameEl.textContent = data.name.toUpperCase();
+                    charNameEl.classList.remove('is-swapping');
+                }, 200);
+            }
+
+            console.log(`🎭 Preview showing: ${data.name}`);
+        } catch (err) {
+            console.error(`❌ Failed to load preview for ${charId}:`, err);
+        } finally {
+            isLoadingPreview = false;
+        }
+    }
+
+    /**
+     * Pre-cache adjacent characters for instant switching.
+     */
+    function precacheNeighbors(index) {
+        const prevIdx = (index - 1 + characterList.length) % characterList.length;
+        const nextIdx = (index + 1) % characterList.length;
+        loadPreviewCharacter(characterList[prevIdx]).catch(() => {});
+        loadPreviewCharacter(characterList[nextIdx]).catch(() => {});
+    }
+
+    /**
+     * Resizes the preview renderer to match its container.
+     */
+    function resizePreviewRenderer() {
+        if (!previewRenderer || !modelArea) return;
+        const rect = modelArea.getBoundingClientRect();
+        const w = rect.width;
+        const h = rect.height;
+        previewRenderer.setSize(w, h, false);
+        previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        previewCamera.aspect = w / h;
+        previewCamera.updateProjectionMatrix();
+    }
+
+    // ── Drag-to-Rotate Handlers ──
+    if (previewCanvas) {
+        previewCanvas.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            isDraggingPreview = true;
+            previewDragStartX = e.clientX;
+            previewCanvas.setPointerCapture(e.pointerId);
+        });
+
+        previewCanvas.addEventListener('pointermove', (e) => {
+            if (!isDraggingPreview) return;
+            const dx = e.clientX - previewDragStartX;
+            previewDragStartX = e.clientX;
+            previewTargetYaw += dx * 0.008;
+            lastDragTime = Date.now();
+        });
+
+        previewCanvas.addEventListener('pointerup', (e) => {
+            isDraggingPreview = false;
+            if (previewCanvas.hasPointerCapture(e.pointerId)) {
+                previewCanvas.releasePointerCapture(e.pointerId);
+            }
+        });
+
+        previewCanvas.addEventListener('pointercancel', (e) => {
+            isDraggingPreview = false;
+        });
+    }
+
+    // ── Arrow Navigation ──
     if (arrowLeft) {
         arrowLeft.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (activeCardIndex > 0) updateCarousel(activeCardIndex - 1);
+            activeCharIndex = (activeCharIndex - 1 + characterList.length) % characterList.length;
+            showPreviewCharacter(characterList[activeCharIndex]);
+            precacheNeighbors(activeCharIndex);
         });
     }
     if (arrowRight) {
         arrowRight.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (activeCardIndex < cards.length - 1) updateCarousel(activeCardIndex + 1);
+            activeCharIndex = (activeCharIndex + 1) % characterList.length;
+            showPreviewCharacter(characterList[activeCharIndex]);
+            precacheNeighbors(activeCharIndex);
         });
     }
 
-
-
-    // Handle character card clicks — just select the clicked card
-    document.querySelectorAll('.char-card').forEach((card, idx) => {
-        card.addEventListener('pointerdown', (e) => e.stopPropagation());
-
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.char-select__arrow')) return;
-            if (!uiRoot || uiRoot.classList.contains('is-exiting')) return;
-
-            // If an adjacent card is clicked, bring it to the center
-            if (idx !== activeCardIndex) {
-                updateCarousel(idx);
-            }
-        });
-    });
-
-    // Helper to get currently selected character from carousel
+    // Helper to get currently selected character
     function getSelectedCharacter() {
-        return cards[activeCardIndex].dataset.character;
+        return characterList[activeCharIndex];
     }
+
+    // ── Preview Render Loop (integrated into main tick) ──
+    // Store reference to update function for tick loop
+    window.__updateCharPreview = function(deltaTime) {
+        if (!previewActive || !previewRenderer) return;
+
+        // Update animation mixer
+        if (currentPreviewMixer) {
+            currentPreviewMixer.update(deltaTime);
+        }
+
+        // Auto-rotate when not dragging (resume after 2s of no drag)
+        const timeSinceDrag = (Date.now() - lastDragTime) / 1000;
+        if (!isDraggingPreview && timeSinceDrag > 2.0) {
+            previewTargetYaw += autoRotateSpeed * deltaTime;
+        }
+
+        // Smooth-lerp yaw
+        previewModelYaw += (previewTargetYaw - previewModelYaw) * Math.min(10 * deltaTime, 1);
+
+        // Apply rotation to model
+        if (currentPreviewModel) {
+            currentPreviewModel.rotation.y = previewModelYaw;
+        }
+
+        // Render preview
+        previewRenderer.render(previewScene, previewCamera);
+    };
+
+    /**
+     * Dispose preview renderer and free GPU memory.
+     */
+    window.__disposeCharPreview = function() {
+        previewActive = false;
+        if (previewRenderer) {
+            previewRenderer.dispose();
+            previewRenderer = null;
+        }
+        // Remove all cached models from preview scene
+        if (currentPreviewModel) {
+            previewScene.remove(currentPreviewModel);
+        }
+        modelCache.clear();
+        console.log('🧹 Character preview disposed');
+    };
+
+    // ── Initial Setup ──
+    // Load first character and resize
+    resizePreviewRenderer();
+    showPreviewCharacter(characterList[0]);
+    precacheNeighbors(0);
+
+    // Handle window resize for preview canvas
+    window.addEventListener('resize', resizePreviewRenderer);
+
 
     // Single-player start game flow
     function startGame(selectedCharacter) {
@@ -1542,6 +1835,12 @@ function initializeScene() {
         // After exit animation completes, hide overlay and load character and start game
         setTimeout(async () => {
             uiRoot.style.display = 'none';
+
+            // Dispose character preview renderer (no longer needed)
+            if (window.__disposeCharPreview) {
+                window.__disposeCharPreview();
+                window.__updateCharPreview = null;
+            }
 
             // Disable follow mode during async loading to prevent the camera
             // from following the player with a stale cameraTheta (Math.PI)
@@ -1590,6 +1889,48 @@ function initializeScene() {
             }
             console.log('🎮 Game started');
         }, 800);
+    }
+
+    // Gamemode Selector Interactivity & Modes
+    const GAME_MODES = [
+        { id: '1v1_bot', label: '1 VS 1 BOT', tag: 'SOLO' },
+        { id: 'practice', label: 'PRACTICE', tag: 'TRAIN' },
+        { id: 'survival', label: 'SURVIVAL', tag: 'ARENA' }
+    ];
+    let currentModeIndex = 0;
+
+    const gamemodeCard = document.getElementById('cs-gamemode');
+    const gamemodeValEl = document.getElementById('cs-gamemode-value');
+    const gamemodeTagEl = document.getElementById('cs-gamemode-tag');
+
+    function cycleGamemode() {
+        currentModeIndex = (currentModeIndex + 1) % GAME_MODES.length;
+        const selectedMode = GAME_MODES[currentModeIndex];
+        
+        if (gamemodeValEl) {
+            gamemodeValEl.style.opacity = '0';
+            gamemodeValEl.style.transform = 'translateY(-4px)';
+            setTimeout(() => {
+                gamemodeValEl.textContent = selectedMode.label;
+                if (gamemodeTagEl) gamemodeTagEl.textContent = selectedMode.tag;
+                gamemodeValEl.style.opacity = '1';
+                gamemodeValEl.style.transform = 'translateY(0)';
+            }, 120);
+        }
+    }
+
+    if (gamemodeCard) {
+        gamemodeCard.addEventListener('pointerdown', (e) => e.stopPropagation());
+        gamemodeCard.addEventListener('click', (e) => {
+            e.stopPropagation();
+            cycleGamemode();
+        });
+        gamemodeCard.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                cycleGamemode();
+            }
+        });
     }
 
     // Add listeners for global action buttons
@@ -1726,6 +2067,12 @@ function initializeScene() {
                 uiRoot.classList.remove('is-visible');
                 uiRoot.classList.add('is-exiting');
                 setTimeout(() => { uiRoot.style.display = 'none'; }, 400);
+            }
+
+            // Dispose character preview renderer
+            if (window.__disposeCharPreview) {
+                window.__disposeCharPreview();
+                window.__updateCharPreview = null;
             }
 
             // Load local player character
