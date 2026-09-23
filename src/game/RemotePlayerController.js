@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { AnimationStateMachine, AnimState } from './AnimationStateMachine.js';
+import { AnimationStateMachine } from './AnimationStateMachine.js';
 
 /**
  * RemotePlayerController — Manages a remote player's visual representation.
@@ -75,7 +75,7 @@ export class RemotePlayerController {
 
         const gltf = await new Promise((resolve, reject) => {
             gltfLoader.load(
-                `/models/characters/${modelName}.gltf`,
+                `/models/characters/${modelName}.glb`,
                 resolve,
                 undefined,
                 reject

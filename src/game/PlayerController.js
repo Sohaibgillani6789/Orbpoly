@@ -495,6 +495,21 @@ export class PlayerController {
     dispose() {
         if (this._punchTimeout) clearTimeout(this._punchTimeout);
         if (this._hitFlashTimeout) clearTimeout(this._hitFlashTimeout);
+
+        if (this._combatCollisionHandler) {
+            this.body.removeEventListener('collide', this._combatCollisionHandler);
+            this._combatCollisionHandler = null;
+        }
+
         this.physicsWorld.removeBody(this.body);
+
+        if (this.model) {
+            if (this.model.parent) {
+                this.model.parent.remove(this.model);
+            } else if (this.scene) {
+                this.scene.remove(this.model);
+            }
+            this.model = null;
+        }
     }
 }

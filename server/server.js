@@ -40,7 +40,25 @@ import * as customParser from 'socket.io-msgpack-parser';
 
 // ─── CONFIG ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://orbpoly.vercel.app';
+const ALLOWED_ORIGINS = [
+    'https://orbpoly.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+].filter(Boolean);
+
+const corsOriginCheck = (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.vercel.app')) {
+        callback(null, true);
+    } else {
+        callback(new Error('Not allowed by CORS'));
+    }
+};
+
+const corsOptions = {
+    origin: corsOriginCheck,
+    methods: ['GET', 'POST'],
+};
 const PLATFORM_RADIUS = 25;
 
 // ─── HTTP SERVER ──────────────────────────────────────────
@@ -66,7 +84,7 @@ app.get('/', (req, res) => {
 });
 
 // CORS — lock all remaining HTTP routes to the frontend origin
-app.use(cors({ origin: FRONTEND_URL, methods: ['GET', 'POST'] }));
+app.use(cors(corsOptions));
 
 // Room list API (CORS-protected)
 app.get('/rooms', (req, res) => {
@@ -81,10 +99,7 @@ const httpServer = createServer(app);
 
 // ─── SOCKET.IO ────────────────────────────────────────────
 const io = new Server(httpServer, {
-    cors: {
-        origin: FRONTEND_URL,
-        methods: ['GET', 'POST'],
-    },
+    cors: corsOptions,
     // Binary serialization — ~40% smaller packets vs JSON
     parser: customParser,
     // Performance tuning
@@ -285,6 +300,6 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🎮 Orbpoly Game Server`);
     console.log(`   HTTP:   http://0.0.0.0:${PORT}`);
     console.log(`   WS:     ws://0.0.0.0:${PORT}`);
-    console.log(`   CORS:   ${FRONTEND_URL}`);
+    console.log(`   CORS:   ${ALLOWED_ORIGINS.join(', ')}`);
     console.log(`   Tick:   30Hz\n`);
 });

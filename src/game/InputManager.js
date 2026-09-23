@@ -46,6 +46,8 @@ export class InputManager {
         this._onMouseMove = this._onMouseMove.bind(this);
         this._onDoubleClick = this._onDoubleClick.bind(this);
         this._onContextMenu = this._onContextMenu.bind(this);
+        this._onBlur = this._onBlur.bind(this);
+        this._onVisibilityChange = this._onVisibilityChange.bind(this);
 
         window.addEventListener('keydown', this._onKeyDown);
         window.addEventListener('keyup', this._onKeyUp);
@@ -54,6 +56,8 @@ export class InputManager {
         window.addEventListener('mousemove', this._onMouseMove);
         window.addEventListener('dblclick', this._onDoubleClick);
         window.addEventListener('contextmenu', this._onContextMenu);
+        window.addEventListener('blur', this._onBlur);
+        document.addEventListener('visibilitychange', this._onVisibilityChange);
     }
 
     /** @private */
@@ -131,6 +135,33 @@ export class InputManager {
     _onContextMenu(e) {
         if (this._enabled) {
             e.preventDefault();
+        }
+    }
+
+    /** Resets all active inputs and clears key states */
+    reset() {
+        this.keys = {};
+        this._primaryAttack = false;
+        this._primaryAttackReleased = false;
+        this._isPrimaryDown = false;
+        this._secondaryAttack = false;
+        this._doubleAttack = false;
+        this._jump = false;
+        this._barge = false;
+        this._shield = false;
+        this.mouseDelta.x = 0;
+        this.mouseDelta.y = 0;
+    }
+
+    /** @private Clear pressed inputs on window blur (alt-tab, ad overlay) */
+    _onBlur() {
+        this.reset();
+    }
+
+    /** @private Clear inputs when tab is hidden */
+    _onVisibilityChange() {
+        if (document.hidden) {
+            this.reset();
         }
     }
 
@@ -279,5 +310,8 @@ export class InputManager {
         window.removeEventListener('mousemove', this._onMouseMove);
         window.removeEventListener('dblclick', this._onDoubleClick);
         window.removeEventListener('contextmenu', this._onContextMenu);
+        window.removeEventListener('blur', this._onBlur);
+        document.removeEventListener('visibilitychange', this._onVisibilityChange);
+        this.reset();
     }
 }

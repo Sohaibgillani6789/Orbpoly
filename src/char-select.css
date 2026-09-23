@@ -3,8 +3,6 @@
    Stumble Guys-inspired: blue gradient, centered model, chunky UI
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
-
 :root {
     --cs-blue: hsl(210, 100%, 55%);
     --cs-blue-light: hsl(205, 100%, 65%);
@@ -15,7 +13,7 @@
     --cs-dark: hsl(220, 30%, 12%);
     --cs-grey: hsl(220, 10%, 40%);
 
-    --font-main: 'Outfit', 'Inter', system-ui, sans-serif;
+    --font-main: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
 
     --cs-dur: 500ms;
     --ease-out: cubic-bezier(0.16, 1, 0.3, 1);

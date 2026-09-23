@@ -291,7 +291,7 @@ let sharedParticleGeo = null;
 let sharedSmokeGeo = null;
 
 export class CollectibleOrb {
-    constructor(options = {}) {
+    constructor(_options = {}) {
         this.group = new THREE.Group();
         this.time = 0;
 

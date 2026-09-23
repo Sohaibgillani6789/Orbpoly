@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 /**
  * HUD — HTML/CSS overlay for game UI elements.
  * 

@@ -249,7 +249,7 @@ export class BotController {
     // ─── EXECUTION PHASE (runs every frame) ──────────────────
 
     /** @private */
-    _executeMovement(dt) {
+    _executeMovement(_dt) {
         if (this._cachedMoveDir.lengthSq() < 0.001) {
             // No movement — idle
             if (!this.controller.animStateMachine.isLocked) {

@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import GUI from 'lil-gui'
 import grassVertexShader from './shaders/grassVertex.glsl';
 import grassFragmentShader from './shaders/grassFragment.glsl';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -15,7 +14,10 @@ import { Tree } from '@dgreenheck/ez-tree';
 import { GameManager } from './game/GameManager.js';
 import { NetworkManager } from './game/NetworkManager.js';
 import { DustMotes } from './game/DustMotes.js';
-import { PerfMonitor } from './game/PerfMonitor.js';
+import { poki } from './game/PokiBridge.js';
+
+// Initialize Poki SDK immediately at startup
+poki.init();
 
 // All available character IDs for random bot selection
 const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'];
@@ -23,35 +25,30 @@ const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'
 // Scene initialization state — must be declared before loading manager callback
 let sceneInitialized = false;
 
-// First, let's create a Promise-based asset loader
-const loadingPromises = [];
-
-// Loading Manager modification
+// Loading Manager modification — critical assets only (audio decoupled)
 const loadingManager = new THREE.LoadingManager(
-    // Loaded
+    // Loaded — all critical assets ready
     () => {
-        console.log('📦 All assets loaded by LoadingManager');
-        Promise.all(loadingPromises).then(() => {
-            console.log('🤝 All loadingPromises resolved');
-            window.setTimeout(() => {
-                const loaderOverlay = document.getElementById('loading-overlay');
-                if (loaderOverlay) {
-                    console.log('⏳ Fading out loader');
-                    loaderOverlay.style.opacity = '0';
-                    setTimeout(() => {
-                        loaderOverlay.remove();
-                        initializeScene();
-                    }, 500);
-                } else {
-                    initializeScene();
+        poki.gameLoadingFinished();
+        const loaderOverlay = document.getElementById('loading-overlay');
+        if (loaderOverlay) {
+            // Start fade-out immediately — no artificial delay
+            loaderOverlay.style.opacity = '0';
+            // Initialize scene immediately, don't wait for fade animation
+            initializeScene();
+            // Remove overlay after fade completes (non-blocking)
+            setTimeout(() => {
+                if (loaderOverlay && loaderOverlay.parentNode) {
+                    loaderOverlay.remove();
                 }
-            }, 500);
-        });
+            }, 400);
+        } else {
+            initializeScene();
+        }
     },
     // Progress
     (itemUrl, itemsLoaded, itemsTotal) => {
-        const progressRatio = itemsLoaded / itemsTotal;
-        console.log(`🚀 Loading progress: ${Math.round(progressRatio * 100)}% (${itemUrl})`);
+        const progressRatio = itemsTotal > 0 ? (itemsLoaded / itemsTotal) : 1;
         const loaderBar = document.getElementById('loading-bar');
         const loaderBg = document.getElementById('loading-bg');
         if (loaderBar) {
@@ -63,31 +60,28 @@ const loadingManager = new THREE.LoadingManager(
     },
     // Error
     (url) => {
-        console.error('❌ Error loading:', url);
+        console.error('Error loading critical asset:', url);
     }
 );
 
 // Texture loader (must be before any texture loads)
 const textureLoader = new THREE.TextureLoader(loadingManager);
 
-// Add Audio
+// Add Audio — decoupled from main LoadingManager (loads in background)
 const listener = new THREE.AudioListener();
 const sound = new THREE.Audio(listener);
-const audioLoader = new THREE.AudioLoader(loadingManager);
+const audioLoader = new THREE.AudioLoader(); // No loadingManager — non-blocking
 
-// Load the audio but don't play it yet
+// Load audio in background — does NOT block gameplay startup
 let audioBuffer = null;
 audioLoader.load(
     '/sounds/lol.mp3',
     (buffer) => {
         audioBuffer = buffer;
-        console.log("✅ Audio loaded and ready to play");
     },
-    (progress) => {
-        console.log('Audio loading:', (progress.loaded / progress.total * 100) + '% loaded');
-    },
-    (error) => {
-        console.error('Error loading audio:', error);
+    undefined,
+    (_error) => {
+        // Audio loading failed — game continues without music
     }
 );
 
@@ -150,9 +144,6 @@ const BLADE_WIDTH = 0.8;           // Wider blades — each covers more ground a
 const BLADE_HEIGHT = 0.45;
 const BLADE_HEIGHT_VARIATION = 0.25;
 
-// Time uniform for animation
-const timeUniform = { value: 0.0 };
-
 // Shader uniforms for grass
 const grassUniforms = {
     textures: { value: [grassTexture, cloudTexture] },
@@ -185,85 +176,10 @@ const grassMaterial = new THREE.ShaderMaterial({
     side: THREE.DoubleSide
 });
 
-// ...existing code...
-
-function convertRange(val, oldMin, oldMax, newMin, newMax) {
-    return (((val - oldMin) * (newMax - newMin)) / (oldMax - oldMin)) + newMin;
-}
-
-// Pooled vectors for generateBlade — avoids 7+ allocations per blade (opt.md §1)
-const _yawUnitVec = new THREE.Vector3();
-const _tipBendUnitVec = new THREE.Vector3();
-const _bl = new THREE.Vector3();
-const _br = new THREE.Vector3();
-const _tl = new THREE.Vector3();
-const _tr = new THREE.Vector3();
-const _tc = new THREE.Vector3();
-const _tempVec = new THREE.Vector3();
-
-function generateBlade(center, vArrOffset, uv) {
-    const MID_WIDTH = BLADE_WIDTH * 0.65;  // Wider mid-section (was 0.5) — retains coverage through blade body
-    const TIP_OFFSET = 0.18;               // Tip droops into neighboring empty space
-    const height = BLADE_HEIGHT + (Math.random() * BLADE_HEIGHT_VARIATION);
-
-    const yaw = Math.random() * Math.PI * 2;
-    _yawUnitVec.set(Math.sin(yaw), 0, -Math.cos(yaw));
-    const tipBend = Math.random() * Math.PI * 2;
-    _tipBendUnitVec.set(Math.sin(tipBend), 0, -Math.cos(tipBend));
-
-    // Outward lean — blades fan out from root, covering gaps between neighbors
-    // This is the primary gap-filling technique: each blade's tip reaches into
-    // the empty space around its base, so from above the field looks dense
-    const leanStrength = 0.35;
-    const leanX = (Math.random() - 0.5) * leanStrength;
-    const leanZ = (Math.random() - 0.5) * leanStrength;
-
-    // Base vertices (ground level, full blade width)
-    _bl.copy(center).add(_tempVec.copy(_yawUnitVec).multiplyScalar(BLADE_WIDTH / 2));
-    _br.copy(center).add(_tempVec.copy(_yawUnitVec).multiplyScalar(-BLADE_WIDTH / 2));
-
-    // Mid vertices — wider ratio keeps coverage, lean shifts them outward
-    _tl.copy(center).add(_tempVec.copy(_yawUnitVec).multiplyScalar(MID_WIDTH / 2));
-    _tl.x += leanX * 0.4;
-    _tl.z += leanZ * 0.4;
-    _tr.copy(center).add(_tempVec.copy(_yawUnitVec).multiplyScalar(-MID_WIDTH / 2));
-    _tr.x += leanX * 0.4;
-    _tr.z += leanZ * 0.4;
-
-    // Tip — full lean applied, bends outward into neighboring space
-    _tc.copy(center).add(_tempVec.copy(_tipBendUnitVec).multiplyScalar(TIP_OFFSET));
-    _tc.x += leanX;
-    _tc.z += leanZ;
-
-    _tl.y += height / 2;
-    _tr.y += height / 2;
-    _tc.y += height;
-
-    const black = [0, 0, 0];
-    const gray = [0.5, 0.5, 0.5];
-    const white = [1.0, 1.0, 1.0];
-
-    const verts = [
-        { pos: _bl.toArray(), uv: uv, color: black },
-        { pos: _br.toArray(), uv: uv, color: black },
-        { pos: _tr.toArray(), uv: uv, color: gray },
-        { pos: _tl.toArray(), uv: uv, color: gray },
-        { pos: _tc.toArray(), uv: uv, color: white }
-    ];
-
-    const indices = [
-        vArrOffset, vArrOffset + 1, vArrOffset + 2,
-        vArrOffset + 2, vArrOffset + 4, vArrOffset + 3,
-        vArrOffset + 3, vArrOffset, vArrOffset + 2
-    ];
-
-    return { verts, indices };
-}
-
-
-
-
-
+/**
+ * High-performance Zero-Allocation Grass Field Generator (Phase 7)
+ * Directly writes 120,000 blades into TypedArrays with 0 heap object allocations.
+ */
 function generateField() {
     const VERTEX_COUNT = 5;
     const posBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 3);
@@ -278,38 +194,99 @@ function generateField() {
 
     const surfaceMin = (PLANE_SIZE / 2) * -1;
     const surfaceMax = PLANE_SIZE / 2;
+    const surfaceRange = surfaceMax - surfaceMin;
     const radius = PLANE_SIZE / 2;
-    const centerPos = new THREE.Vector3();
+
+    const HALF_BLADE_WIDTH = BLADE_WIDTH * 0.5;
+    const HALF_MID_WIDTH = (BLADE_WIDTH * 0.65) * 0.5;
+    const TIP_OFFSET = 0.18;
 
     for (let i = 0; i < BLADE_COUNT; i++) {
         const r = radius * Math.sqrt(Math.random());
         const theta = Math.random() * 2 * Math.PI;
-        centerPos.set(r * Math.cos(theta), 0, r * Math.sin(theta));
+        const cx = r * Math.cos(theta);
+        const cz = r * Math.sin(theta);
 
-        const u = convertRange(centerPos.x, surfaceMin, surfaceMax, 0, 1);
-        const v = convertRange(centerPos.z, surfaceMin, surfaceMax, 0, 1);
-        const uv = [u, v];
+        const u = (cx - surfaceMin) / surfaceRange;
+        const v = (cz - surfaceMin) / surfaceRange;
 
-        const vArrOffset = i * VERTEX_COUNT;
-        const blade = generateBlade(centerPos, vArrOffset, uv);
+        const height = BLADE_HEIGHT + (Math.random() * BLADE_HEIGHT_VARIATION);
+        const halfHeight = height * 0.5;
 
-        for (let j = 0; j < VERTEX_COUNT; j++) {
-            const vert = blade.verts[j];
-            posBuffer[posIdx++] = vert.pos[0];
-            posBuffer[posIdx++] = vert.pos[1];
-            posBuffer[posIdx++] = vert.pos[2];
+        const yaw = Math.random() * Math.PI * 2;
+        const yawX = Math.sin(yaw);
+        const yawZ = -Math.cos(yaw);
 
-            uvBuffer[uvIdx++] = vert.uv[0];
-            uvBuffer[uvIdx++] = vert.uv[1];
+        const tipBend = Math.random() * Math.PI * 2;
+        const tipX = Math.sin(tipBend);
+        const tipZ = -Math.cos(tipBend);
 
-            colorBuffer[colorIdx++] = vert.color[0];
-            colorBuffer[colorIdx++] = vert.color[1];
-            colorBuffer[colorIdx++] = vert.color[2];
-        }
+        const leanX = (Math.random() - 0.5) * 0.35;
+        const leanZ = (Math.random() - 0.5) * 0.35;
+        const leanMidX = leanX * 0.4;
+        const leanMidZ = leanZ * 0.4;
 
-        for (let k = 0; k < 9; k++) {
-            indexBuffer[elemIdx++] = blade.indices[k];
-        }
+        // Base Left (ground level, black)
+        posBuffer[posIdx++] = cx + yawX * HALF_BLADE_WIDTH;
+        posBuffer[posIdx++] = 0;
+        posBuffer[posIdx++] = cz + yawZ * HALF_BLADE_WIDTH;
+        uvBuffer[uvIdx++] = u;
+        uvBuffer[uvIdx++] = v;
+        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = 0;
+
+        // Base Right (ground level, black)
+        posBuffer[posIdx++] = cx - yawX * HALF_BLADE_WIDTH;
+        posBuffer[posIdx++] = 0;
+        posBuffer[posIdx++] = cz - yawZ * HALF_BLADE_WIDTH;
+        uvBuffer[uvIdx++] = u;
+        uvBuffer[uvIdx++] = v;
+        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = 0;
+
+        // Mid Right (mid level, gray)
+        posBuffer[posIdx++] = cx - yawX * HALF_MID_WIDTH + leanMidX;
+        posBuffer[posIdx++] = halfHeight;
+        posBuffer[posIdx++] = cz - yawZ * HALF_MID_WIDTH + leanMidZ;
+        uvBuffer[uvIdx++] = u;
+        uvBuffer[uvIdx++] = v;
+        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = 0.5;
+
+        // Mid Left (mid level, gray)
+        posBuffer[posIdx++] = cx + yawX * HALF_MID_WIDTH + leanMidX;
+        posBuffer[posIdx++] = halfHeight;
+        posBuffer[posIdx++] = cz + yawZ * HALF_MID_WIDTH + leanMidZ;
+        uvBuffer[uvIdx++] = u;
+        uvBuffer[uvIdx++] = v;
+        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = 0.5;
+
+        // Tip Center (full height, white)
+        posBuffer[posIdx++] = cx + tipX * TIP_OFFSET + leanX;
+        posBuffer[posIdx++] = height;
+        posBuffer[posIdx++] = cz + tipZ * TIP_OFFSET + leanZ;
+        uvBuffer[uvIdx++] = u;
+        uvBuffer[uvIdx++] = v;
+        colorBuffer[colorIdx++] = 1.0;
+        colorBuffer[colorIdx++] = 1.0;
+        colorBuffer[colorIdx++] = 1.0;
+
+        // Indices
+        const vArrOffset = i * 5;
+        indexBuffer[elemIdx++] = vArrOffset;
+        indexBuffer[elemIdx++] = vArrOffset + 1;
+        indexBuffer[elemIdx++] = vArrOffset + 2;
+        indexBuffer[elemIdx++] = vArrOffset + 2;
+        indexBuffer[elemIdx++] = vArrOffset + 4;
+        indexBuffer[elemIdx++] = vArrOffset + 3;
+        indexBuffer[elemIdx++] = vArrOffset + 3;
+        indexBuffer[elemIdx++] = vArrOffset;
+        indexBuffer[elemIdx++] = vArrOffset + 2;
     }
 
     const geom = new THREE.BufferGeometry();
@@ -335,7 +312,6 @@ function generateField() {
 }
 
 
-const ambientColor = new THREE.Color(0x333333); // A dark gray ambient light
 const light = new THREE.DirectionalLight(0xffffff, 1.0);
 light.position.set(10, 10, 10);
 
@@ -350,7 +326,7 @@ async function loadCharacters(charId) {
     const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
 
     const gltf = await new Promise((resolve, reject) => {
-        gltfLoader.load(`/models/characters/${modelName}.gltf`, resolve, undefined, reject);
+        gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
     });
 
     const { scene: model, animations = [] } = gltf;
@@ -559,45 +535,7 @@ skyMesh.matrixAutoUpdate = false;
 skyMesh.updateMatrix();
 scene.add(skyMesh);
 
-const gui = new GUI();
-gui.hide(); // Toggle with H key
-window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyH' && !e.ctrlKey && !e.altKey) {
-        gui._hidden ? gui.show() : gui.hide();
-    }
-});
-
-// Sky Debug UI
-const skyFolder = gui.addFolder('Sky & Clouds');
-skyFolder.add(skyUniforms.uCloudDensity, 'value').min(0.0).max(1.0).step(0.01).name('Cloud Density (Lower = More)');
-skyFolder.add(skyUniforms.uCloudSpeed, 'value').min(0.0).max(0.5).step(0.001).name('Cloud Speed');
-skyFolder.add(skyUniforms.uSunIntensity, 'value').min(0.0).max(5.0).step(0.1).name('Sun Intensity');
-
-const skyColors = {
-    top: skyUniforms.uSkyColorTop.value.getHex(),
-    bottom: skyUniforms.uSkyColorBottom.value.getHex(),
-    cloud: skyUniforms.uCloudColor.value.getHex(),
-    shadow: skyUniforms.uCloudShadowColor.value.getHex()
-};
-
-skyFolder.addColor(skyColors, 'top').name('Sky Top Color').onChange(v => skyUniforms.uSkyColorTop.value.setHex(v));
-skyFolder.addColor(skyColors, 'bottom').name('Sky Bottom Color').onChange(v => skyUniforms.uSkyColorBottom.value.setHex(v));
-skyFolder.addColor(skyColors, 'cloud').name('Cloud Highlight').onChange(v => skyUniforms.uCloudColor.value.setHex(v));
-skyFolder.addColor(skyColors, 'shadow').name('Cloud Shadow').onChange(v => skyUniforms.uCloudShadowColor.value.setHex(v));
-skyFolder.open();
-
-// Grass Debug UI
-const grassFolder = gui.addFolder('Grass');
-grassFolder.add(grassUniforms.uGrassContrast, 'value').min(0.0).max(3.0).step(0.01).name('Contrast');
-grassFolder.add(grassUniforms.uGrassBrightness, 'value').min(-1.0).max(1.0).step(0.01).name('Brightness');
-grassFolder.add(grassUniforms.uCloudMix, 'value').min(0.0).max(1.0).step(0.01).name('Cloud Shadow Mix');
-grassFolder.add(grassUniforms.uWaveSize, 'value').min(0.0).max(50.0).step(0.1).name('Wind Wave Size');
-grassFolder.add(grassUniforms.uTipDistance, 'value').min(0.0).max(2.0).step(0.01).name('Wind Tip Distance');
-grassFolder.add(grassUniforms.uCenterDistance, 'value').min(0.0).max(2.0).step(0.01).name('Wind Center Distance');
-grassFolder.add(grassUniforms.uAOStrength, 'value').min(0.0).max(1.0).step(0.01).name('AO Strength');
-grassFolder.add(grassUniforms.uSSSStrength, 'value').min(0.0).max(1.0).step(0.01).name('SSS Strength');
-grassFolder.add(grassUniforms.uHueVariation, 'value').min(0.0).max(2.0).step(0.01).name('Hue Variation');
-grassFolder.close();
+// Debug GUI removed for production (lil-gui eliminated from bundle)
 
 
 // Add ez-tree
@@ -891,7 +829,6 @@ function placeRock(obj, x, z, scale, rotationY) {
 const rock1WorldPositions = [];
 
 async function spawnSceneRocks() {
-    const ISLAND_R = PLANE_SIZE / 2; // 25 units
 
     // ── rock1 — 5 edge/corner positions (hand-tuned for visual balance) ──
     // Angles are evenly spread with slight offset so they don't feel mechanical.
@@ -969,54 +906,7 @@ spawnSceneRocks();
 
 
 
-// Rock Debug UI
-const rockFolder = gui.addFolder('Rock / Mountain');
-rockFolder.add(rockUniforms.uTexScale, 'value').min(0.01).max(0.5).step(0.005).name('Texture Scale');
-rockFolder.add(rockUniforms.uMossBlend, 'value').min(0.0).max(1.0).step(0.01).name('Moss Blend');
-const rockColors = {
-    ambient: rockUniforms.uAmbientColor.value.getHex(),
-    lightColor: rockUniforms.uLightColor.value.getHex(),
-    moss: rockUniforms.uMossColor.value.getHex(),
-    darkTint: rockUniforms.uRockTintDark.value.getHex()
-};
-rockFolder.addColor(rockColors, 'ambient').name('Ambient Color').onChange(v => rockUniforms.uAmbientColor.value.setHex(v));
-rockFolder.addColor(rockColors, 'lightColor').name('Light Color').onChange(v => rockUniforms.uLightColor.value.setHex(v));
-rockFolder.addColor(rockColors, 'moss').name('Moss Color').onChange(v => rockUniforms.uMossColor.value.setHex(v));
-rockFolder.addColor(rockColors, 'darkTint').name('Rock Dark Tint').onChange(v => rockUniforms.uRockTintDark.value.setHex(v));
-rockFolder.open();
-
-// ── Atmosphere Debug UI ──
-// Uses proxy objects because lil-gui needs direct property access
-// (sceneFog and dustMotes uniforms are updated via onChange callbacks)
-const atmosphereFolder = gui.addFolder('Atmosphere');
-const fogProxy = {
-    density: 0.015,
-    color: 0xa8d8ff,
-    moteOpacity: 0.26,
-    moteSpeed: 2.0,
-};
-atmosphereFolder.add(fogProxy, 'density').min(0.0).max(0.15).step(0.001).name('Fog Density').onChange(v => {
-    sceneFog.density = v;
-    grassUniforms.uFogDensity.value = v;
-    rockUniforms.uFogDensity.value = v;
-    // Also update the current mood profile target so lerp doesn't fight the GUI
-    MOOD_PROFILES[targetMoodKey].fogDensity = v;
-});
-atmosphereFolder.addColor(fogProxy, 'color').name('Fog Color').onChange(v => {
-    sceneFog.color.setHex(v);
-    grassUniforms.uFogColor.value.setHex(v);
-    rockUniforms.uFogColor.value.setHex(v);
-    MOOD_PROFILES[targetMoodKey].fogColor.setHex(v);
-});
-atmosphereFolder.add(fogProxy, 'moteOpacity').min(0.0).max(1.5).step(0.01).name('Dust Opacity').onChange(v => {
-    dustMotes._uniforms.uOpacity.value = v;
-    MOOD_PROFILES[targetMoodKey].moteOpacity = v;
-});
-atmosphereFolder.add(fogProxy, 'moteSpeed').min(0.0).max(2.0).step(0.01).name('Dust Speed').onChange(v => {
-    dustMotes._speedMul = v;
-    MOOD_PROFILES[targetMoodKey].moteSpeed = v;
-});
-atmosphereFolder.open();
+// Rock/Atmosphere debug UI removed for production
 
 /**
  * Lights
@@ -1091,16 +981,27 @@ controls.minDistance = 0;
 controls.maxDistance = Infinity;
 
 /**
+ * Mobile device detection & DPR optimization (Phase 6)
+ */
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024);
+
+function getEffectivePixelRatio() {
+    const dpr = window.devicePixelRatio || 1;
+    // On mobile, cap DPR at 1.5 to prevent GPU fill-rate exhaustion on 1080p/1440p screens
+    return isMobileDevice ? Math.min(dpr, 1.5) : Math.min(dpr, 2.0);
+}
+
+/**
  * Renderer
  */
 const renderer = new THREE.WebGLRenderer({
     canvas: canvas,
-    antialias: true,
+    antialias: !isMobileDevice, // Disable expensive MSAA on mobile for fill-rate efficiency
     powerPreference: 'high-performance'
 })
 renderer.setClearColor('#3da5f5') // Match sky horizon color
 renderer.setSize(sizes.width, sizes.height)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setPixelRatio(getEffectivePixelRatio())
 
 /**
  * Renderer settings
@@ -1109,8 +1010,6 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85; // Brighter for daytime
 renderer.shadowMap.enabled = false;   // Explicitly disable shadow maps (Phase 7)
-
-const perfMonitor = new PerfMonitor(renderer);
 
 window.addEventListener('resize', () => {
     // Update sizes
@@ -1126,9 +1025,27 @@ window.addEventListener('resize', () => {
 
     // Update renderer
     renderer.setSize(sizes.width, sizes.height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(getEffectivePixelRatio());
 })
 
+/**
+ * Tab Visibility API (Poki requirement: pause GPU/sound when tab is hidden)
+ */
+let isTabActive = true;
+document.addEventListener('visibilitychange', () => {
+    isTabActive = !document.hidden;
+    if (document.hidden) {
+        if (sound && sound.isPlaying) {
+            sound.pause();
+        }
+    } else {
+        // Reset clock previousTime so deltaTime doesn't jump after focus
+        previousTime = clock.getElapsedTime();
+        if (sound && !sound.isPlaying && audioBuffer) {
+            try { sound.play(); } catch (_) {}
+        }
+    }
+});
 
 /**
  * Animate
@@ -1141,7 +1058,14 @@ const _currentTarget = new THREE.Vector3();
 const _targetPos = new THREE.Vector3();
 const _targetLookPos = new THREE.Vector3();
 
+let isSceneDisposed = false;
+let animationFrameId = null;
+
 const tick = () => {
+    if (isSceneDisposed) return;
+    animationFrameId = window.requestAnimationFrame(tick);
+    if (!isTabActive) return; // Completely pause frame rendering and simulation when tab is hidden
+
     const elapsedTime = clock.getElapsedTime()
     const rawDelta = elapsedTime - previousTime;
     previousTime = elapsedTime;
@@ -1342,11 +1266,6 @@ const tick = () => {
         window.__updateCharPreview(deltaTime);
     }
 
-    // Update real-time performance statistics
-    perfMonitor.update();
-
-    // Call tick again on the next frame
-    window.requestAnimationFrame(tick)
 }
 const cameraAnimation = {
     active: false,
@@ -1434,7 +1353,7 @@ async function loadBotCharacter(charId) {
 
     try {
         const gltf = await new Promise((resolve, reject) => {
-            gltfLoader.load(`/models/characters/${modelName}.gltf`, resolve, undefined, reject);
+            gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
         });
 
         const { scene: model, animations = [] } = gltf;
@@ -1586,7 +1505,6 @@ function initializeScene() {
     let currentPreviewModel = null;
     let currentPreviewMixer = null;
     let previewActive = true;
-    let isLoadingPreview = false;
 
     // ── Drag-to-Rotate State ──
     let isDraggingPreview = false;
@@ -1610,7 +1528,7 @@ function initializeScene() {
         const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
 
         const gltf = await new Promise((resolve, reject) => {
-            gltfLoader.load(`/models/characters/${modelName}.gltf`, resolve, undefined, reject);
+            gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
         });
 
         const { scene: model, animations = [] } = gltf;
@@ -1636,15 +1554,32 @@ function initializeScene() {
         return result;
     }
 
+    let previewRequestToken = 0;
+
     /**
      * Shows a character model in the preview scene.
-     * Removes the previous model, adds the new one, starts idle animation.
+     * Uses monotonic request generation tokens to guarantee race-free out-of-order resolution.
      */
     async function showPreviewCharacter(charId) {
-        if (isLoadingPreview) return;
-        isLoadingPreview = true;
+        const token = ++previewRequestToken;
+
+        // Update character name with swap animation
+        const charUpper = charId.toUpperCase();
+        if (charNameEl) {
+            charNameEl.classList.add('is-swapping');
+            setTimeout(() => {
+                if (token === previewRequestToken) {
+                    charNameEl.textContent = charUpper;
+                    charNameEl.classList.remove('is-swapping');
+                }
+            }, 150);
+        }
 
         try {
+            const data = await loadPreviewCharacter(charId);
+            // Drop stale async resolution if user selected another character in the meantime
+            if (token !== previewRequestToken) return;
+
             // Remove current model from preview scene
             if (currentPreviewModel) {
                 previewScene.remove(currentPreviewModel);
@@ -1653,7 +1588,6 @@ function initializeScene() {
                 currentPreviewMixer.stopAllAction();
             }
 
-            const data = await loadPreviewCharacter(charId);
             currentPreviewModel = data.model;
             currentPreviewMixer = data.mixer;
 
@@ -1674,20 +1608,13 @@ function initializeScene() {
                 action.reset().fadeIn(0.3).play();
             }
 
-            // Update character name with swap animation
-            if (charNameEl) {
-                charNameEl.classList.add('is-swapping');
-                setTimeout(() => {
-                    charNameEl.textContent = data.name.toUpperCase();
-                    charNameEl.classList.remove('is-swapping');
-                }, 200);
+            if (import.meta.env.DEV) {
+                console.log(`🎭 Preview showing: ${data.name}`);
             }
-
-            console.log(`🎭 Preview showing: ${data.name}`);
         } catch (err) {
-            console.error(`❌ Failed to load preview for ${charId}:`, err);
-        } finally {
-            isLoadingPreview = false;
+            if (token === previewRequestToken) {
+                console.error(`❌ Failed to load preview for ${charId}:`, err);
+            }
         }
     }
 
@@ -1739,7 +1666,7 @@ function initializeScene() {
             }
         });
 
-        previewCanvas.addEventListener('pointercancel', (e) => {
+        previewCanvas.addEventListener('pointercancel', () => {
             isDraggingPreview = false;
         });
     }
@@ -2160,7 +2087,7 @@ function initializeScene() {
                         gameManager.stop();
                         // Remove all remote player meshes from scene
                         if (gameManager.remotePlayers) {
-                            for (const [id, rpc] of gameManager.remotePlayers) {
+                            for (const [, rpc] of gameManager.remotePlayers) {
                                 if (rpc.model) scene.remove(rpc.model);
                             }
                             gameManager.remotePlayers.clear();
@@ -2211,7 +2138,7 @@ function initializeScene() {
             }
         });
 
-        mpNetworkManager.onDisconnect((reason) => {
+        mpNetworkManager.onDisconnect((_reason) => {
             if (status) status.textContent = `Connection lost.`;
             if (actions) actions.style.display = 'none';
         });
@@ -2334,6 +2261,12 @@ checkOrientation(); // run once at start
 // DISPOSAL — GPU memory cleanup
 // ============================================================
 function disposeScene() {
+    isSceneDisposed = true;
+    if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+
     scene.traverse((obj) => {
         if (obj.geometry) {
             obj.geometry.dispose();
@@ -2352,11 +2285,15 @@ function disposeScene() {
         }
     });
 
+    if (typeof window.__disposeCharPreview === 'function') {
+        window.__disposeCharPreview();
+    }
     renderer.dispose();
     controls.dispose();
     dustMotes.dispose();
-    gui.destroy();
-    console.log('🧹 Scene disposed — GPU memory released');
+    if (import.meta.env.DEV) {
+        console.log('🧹 Scene disposed — GPU memory released');
+    }
 }
 
 // Expose for external use (e.g., page navigation / HMR cleanup)

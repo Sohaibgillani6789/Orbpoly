@@ -20,8 +20,7 @@ import {
     applyMovementInput,
     applyJump,
     applyImpulse,
-    isRingOut,
-    isGrounded
+    isRingOut
 } from './ServerPhysics.js';
 import {
     checkAttackHit,

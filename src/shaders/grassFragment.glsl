@@ -1,4 +1,4 @@
-uniform sampler2D textures[4];   // textures[0] = grass, textures[1] = clouds
+uniform sampler2D textures[2];   // textures[0] = grass, textures[1] = clouds
 uniform float uGrassContrast;
 uniform float uGrassBrightness;
 uniform float uCloudMix;
@@ -61,7 +61,7 @@ void main() {
     // When sun is behind the blade, light passes through giving a warm glow
     float NdotL = vNdotL;
     float sss = max(0.0, -NdotL) * heightNorm; // only visible higher up
-    sss = pow(sss, 1.5) * uSSSStrength;
+    sss = sss * sqrt(sss) * uSSSStrength; // Fast hardware sqrt instead of pow(1.5)
     vec3 sssColor = vec3(0.4, 0.65, 0.15) * sss; // warm translucent green
     color += sssColor;
 

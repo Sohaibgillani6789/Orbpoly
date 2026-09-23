@@ -261,7 +261,7 @@ export class ShieldEffect {
      * @param {THREE.Vector3} playerPos - Current player world position
      * @param {number} facingAngle - Current model Y rotation
      */
-    update(dt, playerPos, facingAngle) {
+    update(dt, playerPos, _facingAngle) {
         if (!this._active) return;
 
         this._elapsed += dt;

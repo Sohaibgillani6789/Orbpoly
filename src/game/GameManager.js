@@ -9,6 +9,7 @@ import { CollectibleOrb } from './CollectibleOrb.js';
 import { BotController } from './BotController.js';
 import { ShieldEffect } from './ShieldEffect.js';
 import { RemotePlayerController } from './RemotePlayerController.js';
+import { poki } from './PokiBridge.js';
 
 /**
  * Game state enum.
@@ -461,6 +462,7 @@ export class GameManager {
         this._cacheDOM();
         this.state = GameState.PLAYING;
         this.inputManager.enabled = true;
+        poki.gameplayStart();
         
         if (this.botController) {
             this.botController.setPaused(false);
@@ -886,6 +888,7 @@ export class GameManager {
         console.log(`🏆 ${winnerName} Wins!`);
         this.state = GameState.GAME_OVER;
         this.inputManager.enabled = false;
+        poki.gameplayStop();
         if (this.botController) {
             this.botController.setPaused(true);
         }
@@ -1128,7 +1131,7 @@ export class GameManager {
      * Updates the barge cooldown bar in the HUD.
      * @private
      */
-    _updateBargeCooldownHUD(dt) {
+    _updateBargeCooldownHUD(_dt) {
         if (!this.localPlayer) return;
         if (!this._dom) this._cacheDOM();
         const ctrl = this.localPlayer.controller;
@@ -1266,6 +1269,7 @@ export class GameManager {
     dispose() {
         this.inputManager.dispose();
         if (this.botController) this.botController.dispose();
+        if (this.combatSystem) this.combatSystem.dispose();
         for (const player of this.players) {
             player.controller.dispose();
             player.animSM.dispose();

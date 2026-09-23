@@ -115,7 +115,10 @@ export class NetworkManager {
     connect() {
         return new Promise((resolve, reject) => {
             if (this.socket) {
+                this.socket.removeAllListeners();
+                if (this.socket.io) this.socket.io.removeAllListeners();
                 this.socket.disconnect();
+                this.socket = null;
             }
 
             this.connectionState = 'connecting';
@@ -133,9 +136,12 @@ export class NetworkManager {
                 this.connected = true;
                 this.connectionState = 'connected';
                 this.playerId = this.socket.id;
-                console.log(`🌐 Connected to server as ${this.playerId}`);
+                if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+                    console.log(`🌐 Connected to server as ${this.playerId}`);
+                }
 
                 // Start heartbeat
+                this._clearHeartbeat();
                 this._heartbeatInterval = setInterval(() => {
                     if (this.socket && this.connected) {
                         this.socket.emit('heartbeat');
@@ -341,7 +347,9 @@ export class NetworkManager {
      * @private
      */
     _handleStateSnapshot(snapshot) {
-        const serverTime = snapshot.timestamp;
+        if (!snapshot || !Array.isArray(snapshot.players)) return;
+
+        const serverTime = Number.isFinite(snapshot.timestamp) ? snapshot.timestamp : Date.now();
         const localTime = Date.now();
         const offset = serverTime - localTime;
 
@@ -354,7 +362,9 @@ export class NetworkManager {
         const isKeyframe = snapshot.kf === 1;
 
         for (const playerDelta of snapshot.players) {
+            if (!playerDelta || typeof playerDelta !== 'object') continue;
             const pid = playerDelta.id;
+            if (!pid) continue;
 
             // Merge delta onto known state in-place
             let fullState = this._knownPlayerStates.get(pid);
@@ -406,6 +416,13 @@ export class NetworkManager {
      * @private
      */
     _bufferRemoteState(playerData, serverTime) {
+        if (!playerData || !playerData.id) return;
+        const x = Number.isFinite(playerData.x) ? playerData.x : 0;
+        const y = Number.isFinite(playerData.y) ? playerData.y : 0;
+        const z = Number.isFinite(playerData.z) ? playerData.z : 0;
+        const rotY = Number.isFinite(playerData.rotY) ? playerData.rotY : 0;
+        const hp = Number.isFinite(playerData.hp) ? playerData.hp : 100;
+
         let buffer = this.remoteStateBuffers.get(playerData.id);
         if (!buffer) {
             buffer = [];
@@ -414,13 +431,13 @@ export class NetworkManager {
 
         buffer.push({
             timestamp: serverTime,
-            x: playerData.x,
-            y: playerData.y,
-            z: playerData.z,
-            rotY: playerData.rotY,
-            anim: playerData.anim,
-            hp: playerData.hp,
-            alive: playerData.alive,
+            x,
+            y,
+            z,
+            rotY,
+            anim: playerData.anim || 'idle',
+            hp,
+            alive: playerData.alive !== false,
         });
 
         // Keep buffer bounded

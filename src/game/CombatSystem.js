@@ -193,6 +193,11 @@ export class CombatSystem {
      * @param {import('./PlayerController.js').PlayerController} playerController
      */
     unregisterPlayer(playerController) {
+        if (!playerController) return;
+        if (playerController._combatCollisionHandler && playerController.body) {
+            playerController.body.removeEventListener('collide', playerController._combatCollisionHandler);
+            playerController._combatCollisionHandler = null;
+        }
         const index = this._players.indexOf(playerController);
         if (index > -1) {
             this._players.splice(index, 1);
@@ -201,6 +206,19 @@ export class CombatSystem {
 
     /** Clears the hit cooldown cache (call periodically or on round reset) */
     clearCooldowns() {
+        this._recentHits.clear();
+    }
+
+    /** Disposes all player collision listeners and clears references */
+    dispose() {
+        for (const player of this._players) {
+            if (player && player._combatCollisionHandler && player.body) {
+                player.body.removeEventListener('collide', player._combatCollisionHandler);
+                player._combatCollisionHandler = null;
+            }
+        }
+        this._players = [];
+        this._onHitCallbacks = [];
         this._recentHits.clear();
     }
 }

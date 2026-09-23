@@ -63,9 +63,10 @@ export class AnimationStateMachine {
         // Auto-detect animations by name
         this._buildActionsFromNames(clips);
 
-        // Log what we found
-        const found = Object.keys(this.actions).join(', ');
-        console.log(`🎬 AnimSM mapped: [${found}] from ${clips.length} clips`);
+        if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+            const found = Object.keys(this.actions).join(', ');
+            console.log(`🎬 AnimSM mapped: [${found}] from ${clips.length} clips`);
+        }
 
         // Listen for animation completion (one-shot → return to idle)
         this._onFinished = this._onAnimationFinished.bind(this);
@@ -80,8 +81,9 @@ export class AnimationStateMachine {
      * @private
      */
     _buildActionsFromNames(clips) {
-        // Log all available clip names for debugging
-        console.log('📋 Available clips:', clips.map((c, i) => `${i}:${c.name}`).join(', '));
+        if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+            console.log('📋 Available clips:', clips.map((c, i) => `${i}:${c.name}`).join(', '));
+        }
 
         const assignedClips = new Set();
 
@@ -97,7 +99,7 @@ export class AnimationStateMachine {
                 }
 
                 this.actions[stateName] = action;
-            } else {
+            } else if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
                 console.warn(`⚠️ AnimSM: No clip found for "${stateName}" (searched: ${patterns.join(', ')})`);
             }
         }
@@ -153,8 +155,15 @@ export class AnimationStateMachine {
 
     /** @private */
     _onAnimationFinished(event) {
+        const currentAction = this.currentState ? this.actions[this.currentState] : null;
+        if (event && event.action && currentAction && event.action !== currentAction) {
+            return;
+        }
+
         const st = this.currentState;
-        if (st === AnimState.PUNCH || st === AnimState.SWORD_ATTACK || st === AnimState.SWORD_ATTACK_2 || st === AnimState.STAFF_ATTACK || st === AnimState.RECEIVE_HIT || st === AnimState.BOW_SHOOT) {
+        if (st === AnimState.PUNCH || st === AnimState.SWORD_ATTACK || st === AnimState.SWORD_ATTACK_2 ||
+            st === AnimState.STAFF_ATTACK || st === AnimState.RECEIVE_HIT || st === AnimState.BOW_SHOOT ||
+            st === AnimState.BOW_DRAW) {
             this.locked = false;
             this.setState(AnimState.IDLE);
         }
