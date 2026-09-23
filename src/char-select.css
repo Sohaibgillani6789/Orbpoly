@@ -921,3 +921,368 @@
         left: 8px;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   GRAPHICS QUALITY SELECTOR — LOW / MEDIUM / HIGH (60 FPS)
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Top-Right Panel on Character Select Screen ─── */
+.cs-gfx-panel {
+    position: absolute;
+    top: clamp(12px, 1.8vh, 22px);
+    right: clamp(12px, 1.5vw, 22px);
+    z-index: 25;
+    opacity: 0;
+    transform: scale(0.85) translateY(-10px);
+    transition: none;
+    pointer-events: auto;
+}
+
+.char-select.is-visible .cs-gfx-panel {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    transition: opacity 0.4s var(--ease-out) 0.3s,
+        transform 0.4s var(--ease-spring) 0.25s;
+}
+
+.cs-gfx-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: hsla(215, 38%, 14%, 0.82);
+    border: 1px solid hsla(210, 80%, 70%, 0.22);
+    border-radius: 16px;
+    padding: 6px 10px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 
+        0 8px 24px hsla(0, 0%, 0%, 0.35),
+        inset 0 1px 0 hsla(210, 100%, 80%, 0.15);
+}
+
+.cs-gfx-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px;
+}
+
+.cs-gfx-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: hsla(205, 100%, 75%, 0.9);
+    text-transform: uppercase;
+}
+
+.cs-gfx-fps-pill {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: hsla(145, 80%, 40%, 0.25);
+    border: 1px solid hsla(145, 90%, 55%, 0.45);
+    color: #4ade80;
+    letter-spacing: 0.8px;
+}
+
+.cs-gfx-selector {
+    display: flex;
+    align-items: center;
+    background: hsla(220, 40%, 8%, 0.65);
+    border-radius: 12px;
+    padding: 3px;
+    gap: 3px;
+    border: 1px solid hsla(210, 50%, 40%, 0.25);
+}
+
+.cs-gfx-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 58px;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: hsla(210, 20%, 75%, 0.85);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s var(--ease-spring);
+}
+
+.cs-gfx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: hsla(210, 20%, 50%, 0.6);
+    margin-bottom: 3px;
+    transition: all 0.25s ease;
+}
+
+.cs-gfx-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    line-height: 1.1;
+}
+
+.cs-gfx-sub {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    opacity: 0.65;
+    margin-top: 1px;
+}
+
+.cs-gfx-btn:hover {
+    color: #fff;
+    background: hsla(210, 80%, 50%, 0.18);
+}
+
+.cs-gfx-btn.is-active {
+    background: linear-gradient(135deg, hsla(200, 95%, 48%, 0.9), hsla(215, 90%, 42%, 0.95));
+    color: #ffffff;
+    box-shadow: 
+        0 2px 10px hsla(200, 100%, 45%, 0.45),
+        inset 0 1px 0 hsla(195, 100%, 80%, 0.4);
+}
+
+.cs-gfx-btn.is-active .cs-gfx-dot {
+    background: #4ade80;
+    box-shadow: 0 0 8px #4ade80;
+    transform: scale(1.3);
+}
+
+.cs-gfx-btn.is-active .cs-gfx-sub {
+    opacity: 0.95;
+    color: hsla(190, 100%, 90%, 0.95);
+}
+
+@media (max-width: 600px) {
+    .cs-gfx-panel {
+        top: 8px;
+        right: 8px;
+    }
+    .cs-gfx-btn {
+        min-width: 44px;
+        padding: 4px 6px;
+    }
+    .cs-gfx-sub {
+        display: none;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   IN-GAME QUICK GRAPHICS SWITCHER (Accessible during combat)
+   ═══════════════════════════════════════════════════════════ */
+.ingame-gfx-hud {
+    position: fixed;
+    top: 16px;
+    right: 20px;
+    z-index: 1500;
+    pointer-events: auto;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: none;
+}
+
+.ingame-gfx-hud.is-active {
+    display: block;
+}
+
+.ingame-gfx-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 12px;
+    border: 1px solid hsla(200, 100%, 70%, 0.3);
+    border-radius: 12px;
+    background: hsla(215, 38%, 14%, 0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 4px 16px hsla(0, 0%, 0%, 0.4);
+    transition: all 0.2s var(--ease-spring);
+}
+
+.ingame-gfx-btn:hover {
+    transform: scale(1.05);
+    background: hsla(200, 70%, 35%, 0.9);
+    border-color: hsla(195, 100%, 70%, 0.6);
+    box-shadow: 0 0 16px hsla(200, 100%, 55%, 0.35);
+}
+
+.ingame-gfx-btn:active {
+    transform: scale(0.96);
+}
+
+.ingame-gfx-icon {
+    width: 18px;
+    height: 18px;
+}
+
+.ingame-gfx-tag {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #38bdf8;
+    background: hsla(200, 100%, 50%, 0.2);
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+/* In-Game Modal Overlay */
+.ingame-gfx-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+}
+
+.ingame-gfx-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: hsla(220, 40%, 6%, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.ingame-gfx-modal__dialog {
+    position: relative;
+    width: clamp(300px, 90vw, 440px);
+    background: linear-gradient(135deg, hsla(215, 38%, 14%, 0.96), hsla(222, 45%, 9%, 0.98));
+    border: 1px solid hsla(200, 100%, 70%, 0.3);
+    border-radius: 20px;
+    padding: 22px;
+    box-shadow: 0 20px 50px hsla(0, 0%, 0%, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: gfx-pop 0.25s var(--ease-spring);
+}
+
+@keyframes gfx-pop {
+    from { opacity: 0; transform: scale(0.92) translateY(12px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ingame-gfx-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ingame-gfx-modal__title-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ingame-gfx-modal__title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    color: #ffffff;
+}
+
+.ingame-gfx-modal__badge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: hsla(145, 80%, 40%, 0.25);
+    border: 1px solid hsla(145, 90%, 55%, 0.45);
+    color: #4ade80;
+    letter-spacing: 0.8px;
+}
+
+.ingame-gfx-modal__close {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    border: 1px solid hsla(210, 40%, 40%, 0.3);
+    background: hsla(220, 20%, 20%, 0.5);
+    color: hsla(0, 0%, 100%, 0.8);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.ingame-gfx-modal__close:hover {
+    background: hsla(0, 80%, 50%, 0.7);
+    color: #fff;
+    border-color: transparent;
+}
+
+.ingame-gfx-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ingame-gfx-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: hsla(215, 30%, 18%, 0.6);
+    border: 1px solid hsla(210, 60%, 50%, 0.18);
+    color: #fff;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s var(--ease-spring);
+}
+
+.ingame-gfx-card:hover {
+    background: hsla(205, 60%, 24%, 0.85);
+    border-color: hsla(195, 100%, 65%, 0.45);
+    transform: translate3d(0, -2px, 0);
+}
+
+.ingame-gfx-card.is-active {
+    background: linear-gradient(135deg, hsla(200, 95%, 35%, 0.9), hsla(215, 85%, 28%, 0.95));
+    border-color: #38bdf8;
+    box-shadow: 0 0 18px hsla(200, 100%, 50%, 0.3), inset 0 1px 0 hsla(200, 100%, 85%, 0.3);
+}
+
+.gfx-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.gfx-card-name {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.gfx-card-pill {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: hsla(0, 0%, 100%, 0.12);
+}
+
+.ingame-gfx-card.is-active .gfx-card-pill {
+    background: #38bdf8;
+    color: #0c4a6e;
+}
+
+.gfx-card-desc {
+    font-size: 11px;
+    color: hsla(210, 20%, 80%, 0.8);
+    line-height: 1.35;
+}

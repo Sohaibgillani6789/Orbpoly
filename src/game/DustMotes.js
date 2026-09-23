@@ -87,9 +87,11 @@ export class DustMotes {
     constructor(scene, opts = {}) {
         const count = opts.count || 800;
         this.count = count;
+        this.activeCount = count;
         this.radius = opts.radius || 30;
         this.heightMin = opts.heightMin || -5;
         this.heightMax = opts.heightMax || 12;
+        this._visible = true;
 
         // ── Attribute buffers (pre-allocated, never re-created) ──
         const positions = new Float32Array(count * 3);
@@ -206,7 +208,8 @@ export class DustMotes {
         const hMin = this.heightMin;
         const hMax = this.heightMax;
 
-        for (let i = 0; i < this.count; i++) {
+        const limit = this.activeCount !== undefined ? this.activeCount : this.count;
+        for (let i = 0; i < limit; i++) {
             const i3 = i * 3;
             const s = sm * speed[i];
 
@@ -256,12 +259,27 @@ export class DustMotes {
     }
 
     /**
+     * Dynamically sets the active particle count via WebGL draw range (zero allocations)
+     * @param {number} count
+     */
+    setActiveCount(count) {
+        this.activeCount = Math.max(0, Math.min(count, this.count));
+        if (this._geometry) {
+            this._geometry.setDrawRange(0, this.activeCount);
+        }
+        if (this._points) {
+            this._points.visible = this.activeCount > 0 && this._visible;
+        }
+    }
+
+    /**
      * Set particle visibility and pause/resume simulation
      * @param {boolean} visible
      */
     setVisible(visible) {
+        this._visible = visible;
         if (this._points) {
-            this._points.visible = visible;
+            this._points.visible = visible && (this.activeCount > 0);
         }
     }
 

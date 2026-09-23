@@ -851,6 +851,9 @@ export class GameManager {
         if (this._pixelRatio && this.currentOrb.setPixelRatio) {
             this.currentOrb.setPixelRatio(this._pixelRatio);
         }
+        if (this._graphicsQuality && this.currentOrb.setQuality) {
+            this.currentOrb.setQuality(this._graphicsQuality, this._graphicsConfig);
+        }
         console.log(`✨ Pooled Orb spawned on rock1 at (${x.toFixed(1)}, ${z.toFixed(1)}) without frame drops`);
     }
 
@@ -862,6 +865,19 @@ export class GameManager {
         this._pixelRatio = pixelRatio;
         if (this.currentOrb && this.currentOrb.setPixelRatio) {
             this.currentOrb.setPixelRatio(pixelRatio);
+        }
+    }
+
+    /**
+     * Apply graphics quality preset to active game systems
+     * @param {'low'|'medium'|'high'} preset
+     * @param {object} [config]
+     */
+    setGraphicsQuality(preset, config = null) {
+        this._graphicsQuality = preset;
+        this._graphicsConfig = config;
+        if (this.currentOrb && this.currentOrb.setQuality) {
+            this.currentOrb.setQuality(preset, config);
         }
     }
 

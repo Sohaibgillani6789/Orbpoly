@@ -15,6 +15,7 @@ import { NetworkManager } from './game/NetworkManager.js';
 import { DustMotes } from './game/DustMotes.js';
 import { poki } from './game/PokiBridge.js';
 import { instantiateCharacter } from './game/AssetManager.js';
+import { graphicsManager } from './game/GraphicsManager.js';
 
 // Safe Pointer Capture Polyfill (averts browser-level InvalidStateError race conditions in OrbitControls & preview canvas)
 if (typeof Element !== 'undefined' && Element.prototype.setPointerCapture) {
@@ -45,63 +46,36 @@ poki.init();
 // MOBILE DEVICE DETECTION (must be early — used by geometry/particle config)
 // ============================================================
 function isMobileDevice() {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-        || ('ontouchstart' in window && window.innerWidth < 1024);
+    return graphicsManager.isMobile();
 }
 const _isMobile = isMobileDevice();
 
-/**
- * Mobile device detection & DPR optimization (Phase 8 — mobileopt.md)
- * Centralized render-scale policy: one DPR for all renderers.
- */
-const MOBILE_RENDER_SCALE = {
-    low: 1.0,
-    normal: 1.25,
-    high: 1.5,
-};
-
-let adaptiveRenderScale = 1.0;
-
-function getInitialRenderScale() {
-    if (!_isMobile) {
-        return Math.min(window.devicePixelRatio || 1, 2.0);
-    }
-    const dpr = window.devicePixelRatio || 1;
-    const memory = navigator.deviceMemory || 4;
-    const cores = navigator.hardwareConcurrency || 4;
-    // Conservative default for low-end Android devices.
-    if (memory <= 4 || cores <= 4 || dpr >= 2) {
-        return MOBILE_RENDER_SCALE.low;
-    }
-    return MOBILE_RENDER_SCALE.normal;
-}
-
 function getEffectivePixelRatio() {
-    const maxScale = _isMobile ? 1.25 : 2.0;
-    const initialScale = getInitialRenderScale();
-    return Math.max(
-        0.75,
-        Math.min(initialScale * adaptiveRenderScale, maxScale)
-    );
+    return graphicsManager.getEffectivePixelRatio();
 }
 
 let previewRenderer = null;
 
 function applyRendererPixelRatio() {
     const pixelRatio = getEffectivePixelRatio();
+    const config = graphicsManager.getConfig();
     if (typeof renderer !== 'undefined' && renderer) {
         renderer.setPixelRatio(pixelRatio);
     }
     if (typeof previewRenderer !== 'undefined' && previewRenderer) {
         previewRenderer.setPixelRatio(_isMobile ? Math.min(pixelRatio, 1.0) : Math.min(pixelRatio, 2.0));
     }
-    // DustMotes use the centralized ratio
-    if (typeof dustMotes !== 'undefined' && dustMotes && dustMotes.setPixelRatio) {
-        dustMotes.setPixelRatio(pixelRatio);
+    // DustMotes use the centralized ratio & active count
+    if (typeof dustMotes !== 'undefined' && dustMotes) {
+        if (dustMotes.setPixelRatio) dustMotes.setPixelRatio(pixelRatio);
+        if (dustMotes.setActiveCount && config) dustMotes.setActiveCount(config.dustMotesCount);
     }
     // Propagate to gameManager objects (orbs, particles)
-    if (typeof gameManager !== 'undefined' && gameManager && gameManager.setPixelRatio) {
-        gameManager.setPixelRatio(pixelRatio);
+    if (typeof gameManager !== 'undefined' && gameManager) {
+        if (gameManager.setPixelRatio) gameManager.setPixelRatio(pixelRatio);
+        if (gameManager.setGraphicsQuality && config) {
+            gameManager.setGraphicsQuality(graphicsManager.getQuality(), config);
+        }
     }
 }
 
@@ -122,12 +96,13 @@ function updateMobilePerformanceGovernor(deltaTime) {
     let total = 0;
     for (let i = 0; i < frameTimeSamples.length; i++) total += frameTimeSamples[i];
     const averageMs = total / frameTimeSamples.length;
-    if (averageMs > 22 && adaptiveRenderScale > 0.8) {
-        adaptiveRenderScale = Math.max(0.8, adaptiveRenderScale - 0.1);
+    const currentScale = graphicsManager.getAdaptiveScale();
+    if (averageMs > 22 && currentScale > 0.8) {
+        graphicsManager.setAdaptiveScale(currentScale - 0.1);
         applyRendererPixelRatio();
         qualityCooldown = 3.0;
-    } else if (averageMs < 14 && adaptiveRenderScale < 1.0) {
-        adaptiveRenderScale = Math.min(1.0, adaptiveRenderScale + 0.1);
+    } else if (averageMs < 14 && currentScale < 1.0) {
+        graphicsManager.setAdaptiveScale(currentScale + 0.1);
         applyRendererPixelRatio();
         qualityCooldown = 5.0;
     }
@@ -247,8 +222,6 @@ cloudTexture.colorSpace = THREE.SRGBColorSpace;
 
 // --- GRASS SHADER SYSTEM ---
 const PLANE_SIZE = 50;
-const BLADE_COUNT = 120000;
-const BLADE_WIDTH = 0.8;           // Wider blades — each covers more ground area
 const BLADE_HEIGHT = 0.45;
 const BLADE_HEIGHT_VARIATION = 0.25;
 
@@ -288,16 +261,20 @@ const grassMaterial = new THREE.ShaderMaterial({
     side: THREE.DoubleSide
 });
 
+let grassMesh = null;
+
 /**
- * High-performance Zero-Allocation Grass Field Generator (Phase 7)
- * Directly writes 120,000 blades into TypedArrays with 0 heap object allocations.
+ * High-performance Zero-Allocation Grass Field Generator (Phase 7 & Graphics Options)
+ * Writes blades directly into TypedArrays with 0 heap object allocations.
  */
-function generateField() {
+function generateField(bladeCount, bladeWidth) {
+    const count = bladeCount || (typeof graphicsManager !== 'undefined' ? graphicsManager.getConfig().bladeCount : 120000);
+    const bWidth = bladeWidth || (typeof graphicsManager !== 'undefined' ? graphicsManager.getConfig().bladeWidth : 0.8);
     const VERTEX_COUNT = 5;
-    const posBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 3);
-    const uvBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 2);
-    const colorBuffer = new Float32Array(BLADE_COUNT * VERTEX_COUNT * 3);
-    const indexBuffer = new Uint32Array(BLADE_COUNT * 9);
+    const posBuffer = new Float32Array(count * VERTEX_COUNT * 3);
+    const uvBuffer = new Float32Array(count * VERTEX_COUNT * 2);
+    const colorBuffer = new Float32Array(count * VERTEX_COUNT * 3);
+    const indexBuffer = new Uint32Array(count * 9);
 
     let posIdx = 0;
     let uvIdx = 0;
@@ -309,11 +286,11 @@ function generateField() {
     const surfaceRange = surfaceMax - surfaceMin;
     const radius = PLANE_SIZE / 2;
 
-    const HALF_BLADE_WIDTH = BLADE_WIDTH * 0.5;
-    const HALF_MID_WIDTH = (BLADE_WIDTH * 0.65) * 0.5;
+    const HALF_BLADE_WIDTH = bWidth * 0.5;
+    const HALF_MID_WIDTH = (bWidth * 0.65) * 0.5;
     const TIP_OFFSET = 0.18;
 
-    for (let i = 0; i < BLADE_COUNT; i++) {
+    for (let i = 0; i < count; i++) {
         const r = radius * Math.sqrt(Math.random());
         const theta = Math.random() * 2 * Math.PI;
         const cx = r * Math.cos(theta);
@@ -424,7 +401,16 @@ function generateField() {
     geom.computeBoundingSphere(); // Frustum culling (opt.md §5)
     mesh.matrixAutoUpdate = false;
     mesh.updateMatrix();
-    scene.add(mesh);
+    return mesh;
+}
+
+function applyGrassQuality(bladeCount, bladeWidth) {
+    if (grassMesh) {
+        scene.remove(grassMesh);
+        if (grassMesh.geometry) grassMesh.geometry.dispose();
+    }
+    grassMesh = generateField(bladeCount, bladeWidth);
+    scene.add(grassMesh);
 }
 
 
@@ -658,8 +644,9 @@ tree.matrixAutoUpdate = false;
 tree.updateMatrix();
 scene.add(tree);
 
-// Generate grass field (after scene is initialized)
-generateField();
+// Generate grass field (after scene is initialized) with graphics preset
+const initialGfx = graphicsManager.getConfig();
+applyGrassQuality(initialGfx.bladeCount, initialGfx.bladeWidth);
 
 
 // --- GENERATE FLOWERS ---
@@ -682,14 +669,51 @@ const mountainDisplaceTex = textureLoader.load('/textures/mountain/displacement.
     () => console.log('✅ Mountain displacement loaded'));
 
 // Configure wrapping for triplanar (must tile seamlessly)
-[mountainColorTex, mountainNormalTex, mountainARMTex, mountainDisplaceTex].forEach(tex => {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.minFilter = THREE.LinearMipmapLinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.generateMipmaps = true;
-    tex.anisotropy = 4;
-});
+const mountainTextures = [mountainColorTex, mountainNormalTex, mountainARMTex, mountainDisplaceTex];
+function applyTextureQuality(anisotropy) {
+    const aniso = anisotropy || (typeof graphicsManager !== 'undefined' ? graphicsManager.getConfig().anisotropy : 2);
+    mountainTextures.forEach(tex => {
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = true;
+        tex.anisotropy = aniso;
+        tex.needsUpdate = true;
+    });
+}
+applyTextureQuality(initialGfx.anisotropy);
 mountainColorTex.colorSpace = THREE.SRGBColorSpace; // Color map is sRGB, rest are linear
+
+function updateUIQualityIndicators(preset) {
+    // Character Select Buttons
+    const gfxButtons = document.querySelectorAll('.cs-gfx-btn');
+    gfxButtons.forEach(btn => {
+        const isMatch = btn.getAttribute('data-quality') === preset;
+        btn.classList.toggle('is-active', isMatch);
+        btn.setAttribute('aria-checked', isMatch ? 'true' : 'false');
+    });
+
+    // In-game HUD tag
+    const tagEl = document.getElementById('ingame-gfx-tag');
+    if (tagEl) {
+        tagEl.textContent = preset === 'medium' ? 'MED' : preset.toUpperCase();
+    }
+
+    // In-game modal cards
+    const ingameCards = document.querySelectorAll('.ingame-gfx-card');
+    ingameCards.forEach(card => {
+        const isMatch = card.getAttribute('data-quality') === preset;
+        card.classList.toggle('is-active', isMatch);
+    });
+}
+
+// Hook graphics preset changes to all visual subsystems
+graphicsManager.onQualityChange((preset, config) => {
+    applyRendererPixelRatio();
+    applyGrassQuality(config.bladeCount, config.bladeWidth);
+    applyTextureQuality(config.anisotropy);
+    updateUIQualityIndicators(preset);
+});
 
 // --- Rock Parameters ---
 const ROCK_DEPTH = 38;          // units below Y=0 (tested: 35-40 range)
@@ -1043,12 +1067,13 @@ scene.fog = sceneFog;
 
 // ── Ambient Dust Motes — atmospheric depth particles ──
 const dustMotes = new DustMotes(scene, {
-    count: _isMobile ? 300 : 800, // Reduced on mobile (mobileopt.md)
+    count: 800, // Maximum capacity buffer pre-allocated
     radius: 30,
     heightMin: -5,
     heightMax: 12,
     pixelRatio: getEffectivePixelRatio(), // Centralized pixel ratio
 });
+dustMotes.setActiveCount(initialGfx.dustMotesCount);
 // Pre-allocated scratch color for dust mote mood lerping (zero-GC)
 const _moteScratchColor = new THREE.Color();
 
@@ -1927,9 +1952,11 @@ function initializeScene() {
                 // Re-enable follow mode now that camera is correctly positioned
                 cameraFollowMode = true;
 
-                // Show combat HUD
+                // Show combat HUD & in-game graphics button
                 const combatHud = document.getElementById('combat-hud');
                 if (combatHud) combatHud.classList.add('visible');
+                const ingameGfxHud = document.getElementById('ingame-gfx-hud');
+                if (ingameGfxHud) ingameGfxHud.classList.add('is-active');
 
                 // Update player name in HUD
                 const playerNameEl = document.getElementById('player-hud-name');
@@ -2193,9 +2220,11 @@ function initializeScene() {
                     controls.target.set(playerPos.x, playerPos.y + 1.5, playerPos.z);
                 }
 
-                // Show combat HUD
+                // Show combat HUD & In-game Graphics Quick Switcher
                 const combatHud = document.getElementById('combat-hud');
                 if (combatHud) combatHud.classList.add('visible');
+                const ingameGfxHud = document.getElementById('ingame-gfx-hud');
+                if (ingameGfxHud) ingameGfxHud.classList.add('is-active');
 
                 const playerNameEl = document.getElementById('player-hud-name');
                 if (playerNameEl) playerNameEl.textContent = mpSelectedCharacter.toUpperCase();
@@ -2326,9 +2355,11 @@ function initializeScene() {
                     uiRoot.classList.remove('is-exiting');
                     uiRoot.classList.add('is-visible');
                 }
-                // Hide combat HUD
+                // Hide combat HUD & In-game Graphics Switcher
                 const combatHud = document.getElementById('combat-hud');
                 if (combatHud) combatHud.classList.remove('visible');
+                const ingameGfxHud = document.getElementById('ingame-gfx-hud');
+                if (ingameGfxHud) ingameGfxHud.classList.remove('is-active');
                 // Hide lobby
                 const lobby = document.getElementById('mp-lobby');
                 if (lobby) lobby.style.display = 'none';
@@ -2362,6 +2393,94 @@ function initializeScene() {
 
     // Expose for character cards to trigger multiplayer
     window.__openMultiplayerLobby = openMultiplayerLobby;
+
+    // ═══════════════════════════════════════════════════════════
+    // GRAPHICS QUALITY PRESET UI & IN-GAME CONTROLS (60 FPS)
+    // ═══════════════════════════════════════════════════════════
+    function initGraphicsUI() {
+        const currentPreset = graphicsManager.getQuality();
+
+        // 1. Character Selection Preset Buttons
+        const gfxButtons = document.querySelectorAll('.cs-gfx-btn');
+        gfxButtons.forEach(btn => {
+            btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const quality = btn.getAttribute('data-quality');
+                if (quality) {
+                    graphicsManager.setQuality(quality);
+                }
+            });
+        });
+
+        // 2. In-Game Settings Modal & Controls
+        const ingameBtn = document.getElementById('btn-ingame-gfx');
+        const ingameModal = document.getElementById('ingame-gfx-modal');
+        const ingameClose = document.getElementById('btn-ingame-gfx-close');
+        const ingameBackdrop = document.getElementById('ingame-gfx-backdrop');
+        const ingameCards = document.querySelectorAll('.ingame-gfx-card');
+
+        function toggleIngameModal(show) {
+            if (!ingameModal) return;
+            const willShow = show !== undefined ? show : (ingameModal.style.display === 'none');
+            ingameModal.style.display = willShow ? 'flex' : 'none';
+            if (willShow && document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+        }
+
+        if (ingameBtn) {
+            ingameBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            ingameBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleIngameModal();
+            });
+        }
+
+        if (ingameClose) {
+            ingameClose.addEventListener('pointerdown', (e) => e.stopPropagation());
+            ingameClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleIngameModal(false);
+            });
+        }
+
+        if (ingameBackdrop) {
+            ingameBackdrop.addEventListener('pointerdown', (e) => e.stopPropagation());
+            ingameBackdrop.addEventListener('click', () => toggleIngameModal(false));
+        }
+
+        ingameCards.forEach(card => {
+            card.addEventListener('pointerdown', (e) => e.stopPropagation());
+            card.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const quality = card.getAttribute('data-quality');
+                if (quality) {
+                    graphicsManager.setQuality(quality);
+                    toggleIngameModal(false);
+                }
+            });
+        });
+
+        // Keyboard Shortcut: 'G' key opens in-game graphics modal during match
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyG' || e.key === 'g' || e.key === 'G') {
+                const combatHud = document.getElementById('combat-hud');
+                if (combatHud && combatHud.classList.contains('visible')) {
+                    toggleIngameModal();
+                }
+            } else if (e.code === 'Escape') {
+                if (ingameModal && ingameModal.style.display === 'flex') {
+                    toggleIngameModal(false);
+                }
+            }
+        });
+
+        // Sync initial indicators
+        updateUIQualityIndicators(currentPreset);
+    }
+
+    initGraphicsUI();
 }
 
 // Orientation logic

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { graphicsManager } from './GraphicsManager.js';
 
 /**
  * Hyper-Realistic Raging Fire Orb (CollectibleOrb)
@@ -328,6 +329,12 @@ export class CollectibleOrb {
         this.group.add(this.light);
 
         this.group.scale.set(1.5, 1.5, 1.5);
+
+        this.quality = 'medium';
+        this.qualityConfig = null;
+        if (typeof graphicsManager !== 'undefined' && graphicsManager) {
+            this.setQuality(graphicsManager.getQuality(), graphicsManager.getConfig());
+        }
     }
 
     initSmokeParticles() {
@@ -469,11 +476,20 @@ export class CollectibleOrb {
         this.core.scale.set(breathe, breathe, breathe);
 
         // Dynamic light: intensity + subtle color temperature shift
-        const flicker = 20.0 + Math.sin(this.time * 14.0) * 6.0 + Math.cos(this.time * 22.0) * 3.0;
-        this.light.intensity = flicker;
-        // Shift light color between deep red and orange-red on heartbeat
-        const warmth = pulse * 0.5 + 0.5;
-        this.light.color.setRGB(0.85 + warmth * 0.15, 0.02 + warmth * 0.06, 0.0);
+        const pointLightEnabled = this.qualityConfig?.orbPointLight ?? (this.quality !== 'low');
+        const maxIntensity = this.qualityConfig?.orbLightIntensity ?? 20.0;
+        if (this.light) {
+            this.light.visible = pointLightEnabled;
+            if (pointLightEnabled && maxIntensity > 0) {
+                const flicker = maxIntensity * (0.85 + Math.sin(this.time * 14.0) * 0.15 + Math.cos(this.time * 22.0) * 0.1);
+                this.light.intensity = flicker;
+                // Shift light color between deep red and orange-red on heartbeat
+                const warmth = pulse * 0.5 + 0.5;
+                this.light.color.setRGB(0.85 + warmth * 0.15, 0.02 + warmth * 0.06, 0.0);
+            } else {
+                this.light.intensity = 0;
+            }
+        }
 
         // Multi-axis rotation — organic tumble
         this.core.rotation.y += deltaTime * 0.45;
@@ -498,8 +514,37 @@ export class CollectibleOrb {
         this.core.scale.set(0.001, 0.001, 0.001);
         if (this.smokeSystem) this.smokeSystem.visible = true;
         if (this.particleSystem) this.particleSystem.visible = false;
-        if (this.light) this.light.intensity = 0;
+        if (this.light) {
+            this.light.intensity = 0;
+            this.light.visible = this.qualityConfig?.orbPointLight ?? (this.quality !== 'low');
+        }
         this.group.visible = true;
+    }
+
+    /**
+     * Updates quality settings for the orb
+     * @param {'low'|'medium'|'high'} preset
+     * @param {object} [config]
+     */
+    setQuality(preset, config = null) {
+        this.quality = preset;
+        this.qualityConfig = config || (typeof graphicsManager !== 'undefined' ? graphicsManager.getConfig() : null);
+
+        const smokeCount = this.qualityConfig?.orbSmokeCount ?? (preset === 'low' ? 35 : preset === 'medium' ? 65 : 110);
+        const fireCount = this.qualityConfig?.orbFireCount ?? (preset === 'low' ? 40 : preset === 'medium' ? 75 : 120);
+
+        if (sharedSmokeGeo) {
+            sharedSmokeGeo.setDrawRange(0, smokeCount);
+        }
+        if (sharedParticleGeo) {
+            sharedParticleGeo.setDrawRange(0, fireCount);
+        }
+
+        const pointLightEnabled = this.qualityConfig?.orbPointLight ?? (preset !== 'low');
+        if (this.light) {
+            this.light.visible = pointLightEnabled;
+            if (!pointLightEnabled) this.light.intensity = 0;
+        }
     }
 
     /**

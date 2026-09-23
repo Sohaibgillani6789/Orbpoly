@@ -208,6 +208,54 @@
   <!-- Hit vignette — red flash on player damage -->
   <div id="hit-vignette"></div>
 
+  <!-- ═══════════════════════════════════════════════════════
+       IN-GAME QUICK GRAPHICS SWITCHER (Accessible during combat)
+       ═══════════════════════════════════════════════════════ -->
+  <div id="ingame-gfx-hud" class="ingame-gfx-hud">
+    <button class="ingame-gfx-btn" id="btn-ingame-gfx" aria-label="Quick Graphics Settings (Press G)" title="Graphics Settings (Press G)">
+      <svg class="ingame-gfx-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      <span class="ingame-gfx-tag" id="ingame-gfx-tag">MED</span>
+    </button>
+    <div class="ingame-gfx-modal" id="ingame-gfx-modal" style="display: none;">
+      <div class="ingame-gfx-modal__backdrop" id="ingame-gfx-backdrop"></div>
+      <div class="ingame-gfx-modal__dialog">
+        <div class="ingame-gfx-modal__header">
+          <div class="ingame-gfx-modal__title-group">
+            <span class="ingame-gfx-modal__title">GRAPHICS QUALITY</span>
+            <span class="ingame-gfx-modal__badge">TARGET 60 FPS</span>
+          </div>
+          <button class="ingame-gfx-modal__close" id="btn-ingame-gfx-close" aria-label="Close">✕</button>
+        </div>
+        <div class="ingame-gfx-cards">
+          <button class="ingame-gfx-card" data-quality="low">
+            <div class="gfx-card-top">
+              <span class="gfx-card-name">LOW</span>
+              <span class="gfx-card-pill">⚡ MAX FPS</span>
+            </div>
+            <div class="gfx-card-desc">Engineered for budget phones & older GPUs. Lightweight grass & reduced particles.</div>
+          </button>
+          <button class="ingame-gfx-card" data-quality="medium">
+            <div class="gfx-card-top">
+              <span class="gfx-card-name">MEDIUM</span>
+              <span class="gfx-card-pill">⚖️ BALANCED</span>
+            </div>
+            <div class="gfx-card-desc">Optimal 60 FPS balance of crisp resolution, vibrant grass, and rich lighting.</div>
+          </button>
+          <button class="ingame-gfx-card" data-quality="high">
+            <div class="gfx-card-top">
+              <span class="gfx-card-name">HIGH</span>
+              <span class="gfx-card-pill">✨ ULTRA</span>
+            </div>
+            <div class="gfx-card-desc">Maximum visual detail, 120,000 grass blades, 800 motes & full volcanic orb glow.</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <canvas class="webgl"></canvas>
 
 
@@ -219,7 +267,34 @@
     <!-- Full-screen gradient background -->
     <div class="char-select__bg"></div>
 
-    <!-- Controller icon button (top-right) — opens controls modal -->
+    <!-- Graphics Quality Selector (Top-Right of Character Select) -->
+    <div class="cs-gfx-panel" id="cs-gfx-panel">
+      <div class="cs-gfx-inner">
+        <div class="cs-gfx-header">
+          <span class="cs-gfx-label">GRAPHICS</span>
+          <span class="cs-gfx-fps-pill">60 FPS</span>
+        </div>
+        <div class="cs-gfx-selector" role="radiogroup" aria-label="Graphics Quality Preset">
+          <button class="cs-gfx-btn" id="gfx-btn-low" data-quality="low" aria-label="Low Performance Preset" title="Low (Max 60 FPS on budget devices)">
+            <span class="cs-gfx-dot"></span>
+            <span class="cs-gfx-title">LOW</span>
+            <span class="cs-gfx-sub">PERF</span>
+          </button>
+          <button class="cs-gfx-btn" id="gfx-btn-medium" data-quality="medium" aria-label="Medium Balanced Preset" title="Medium (Balanced 60 FPS)">
+            <span class="cs-gfx-dot"></span>
+            <span class="cs-gfx-title">MED</span>
+            <span class="cs-gfx-sub">BALANCED</span>
+          </button>
+          <button class="cs-gfx-btn" id="gfx-btn-high" data-quality="high" aria-label="High Ultra Preset" title="High (Maximum visual fidelity)">
+            <span class="cs-gfx-dot"></span>
+            <span class="cs-gfx-title">HIGH</span>
+            <span class="cs-gfx-sub">ULTRA</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controller icon button (top-left) — opens controls modal -->
     <button class="cs-ctrl-btn" id="btn-controls" aria-label="Game Controls">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <!-- Controller body -->

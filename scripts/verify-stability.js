@@ -213,6 +213,63 @@ runTest('10 Consecutive PhysicsWorld + CombatSystem create/run/dispose cycles', 
     }
 });
 
+// ── 7. TESTING GRAPHICS QUALITY PRESETS (LOW, MEDIUM, HIGH) ──
+console.log('\n🎮 7. Testing GraphicsManager Presets & 60 FPS Scaling:');
+
+import { GRAPHICS_PRESETS, graphicsManager } from '../src/game/GraphicsManager.js';
+
+runTest('All 3 graphics presets exist (low, medium, high)', () => {
+    assert(GRAPHICS_PRESETS.low, 'Low preset must exist');
+    assert(GRAPHICS_PRESETS.medium, 'Medium preset must exist');
+    assert(GRAPHICS_PRESETS.high, 'High preset must exist');
+});
+
+runTest('Grass blade count scales monotonically (High > Medium > Low)', () => {
+    assert(GRAPHICS_PRESETS.high.bladeCount > GRAPHICS_PRESETS.medium.bladeCount);
+    assert(GRAPHICS_PRESETS.medium.bladeCount > GRAPHICS_PRESETS.low.bladeCount);
+    assert.strictEqual(GRAPHICS_PRESETS.low.bladeCount, 40000);
+    assert.strictEqual(GRAPHICS_PRESETS.medium.bladeCount, 75000);
+    assert.strictEqual(GRAPHICS_PRESETS.high.bladeCount, 120000);
+});
+
+runTest('Grass blade width compensates density (Low > Medium > High)', () => {
+    assert(GRAPHICS_PRESETS.low.bladeWidth > GRAPHICS_PRESETS.medium.bladeWidth);
+    assert(GRAPHICS_PRESETS.medium.bladeWidth > GRAPHICS_PRESETS.high.bladeWidth);
+});
+
+runTest('Dust motes count scales with quality (High > Medium > Low)', () => {
+    assert(GRAPHICS_PRESETS.high.dustMotesCount > GRAPHICS_PRESETS.medium.dustMotesCount);
+    assert(GRAPHICS_PRESETS.medium.dustMotesCount > GRAPHICS_PRESETS.low.dustMotesCount);
+    assert.strictEqual(GRAPHICS_PRESETS.low.dustMotesCount, 100);
+    assert.strictEqual(GRAPHICS_PRESETS.medium.dustMotesCount, 350);
+    assert.strictEqual(GRAPHICS_PRESETS.high.dustMotesCount, 800);
+});
+
+runTest('DPR cap adheres to 60 FPS fill-rate constraints', () => {
+    assert(GRAPHICS_PRESETS.low.dprDesktop <= 1.0);
+    assert(GRAPHICS_PRESETS.low.dprMobile <= 1.0);
+    assert(GRAPHICS_PRESETS.high.dprMobile <= 1.5, 'Mobile high must be capped to prevent thermal throttle');
+});
+
+runTest('GraphicsManager setQuality switches preset and notifies listeners', () => {
+    let notifiedPreset = null;
+    const unsub = graphicsManager.onQualityChange((p) => { notifiedPreset = p; });
+    
+    graphicsManager.setQuality('low', false);
+    assert.strictEqual(graphicsManager.getQuality(), 'low');
+    assert.strictEqual(notifiedPreset, 'low');
+
+    graphicsManager.setQuality('high', false);
+    assert.strictEqual(graphicsManager.getQuality(), 'high');
+    assert.strictEqual(notifiedPreset, 'high');
+
+    graphicsManager.setQuality('medium', false);
+    assert.strictEqual(graphicsManager.getQuality(), 'medium');
+    assert.strictEqual(notifiedPreset, 'medium');
+
+    unsub();
+});
+
 // ── SUMMARY REPORT ──
 console.log('\n' + '─'.repeat(50));
 console.log(`📊 QA VERIFICATION RESULT: ${passCount}/${testCount} TESTS PASSED`);
