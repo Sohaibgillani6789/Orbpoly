@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { instantiateCharacter } from './AssetManager.js';
 import { AnimationStateMachine } from './AnimationStateMachine.js';
 
 /**
@@ -69,20 +69,7 @@ export class RemotePlayerController {
      * @returns {Promise<void>}
      */
     async load(initialPosition) {
-        const modelName = this.characterClass.charAt(0).toUpperCase() + this.characterClass.slice(1);
-
-        const gltfLoader = new GLTFLoader();
-
-        const gltf = await new Promise((resolve, reject) => {
-            gltfLoader.load(
-                `/models/characters/${modelName}.glb`,
-                resolve,
-                undefined,
-                reject
-            );
-        });
-
-        const { scene: model, animations = [] } = gltf;
+        const { model, animations } = await instantiateCharacter(this.characterClass);
 
         // Configure shadows
         model.traverse((child) => {
@@ -107,7 +94,7 @@ export class RemotePlayerController {
 
         this.isLoaded = true;
 
-        console.log(`🌐 Remote player loaded: ${this.playerName} (${modelName})`);
+        console.log(`🌐 Remote player loaded: ${this.playerName} (${this.characterClass})`);
     }
 
     /**

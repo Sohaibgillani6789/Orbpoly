@@ -511,6 +511,19 @@ export class CollectibleOrb {
         if (this.light) this.light.intensity = 0;
     }
 
+    /**
+     * Set centralized pixel ratio for particle rendering (mobileopt.md)
+     * @param {number} pixelRatio
+     */
+    setPixelRatio(pixelRatio) {
+        if (this.smokeMat && this.smokeMat.uniforms.uPixelRatio) {
+            this.smokeMat.uniforms.uPixelRatio.value = pixelRatio;
+        }
+        if (this.particleMat && this.particleMat.uniforms.uPixelRatio) {
+            this.particleMat.uniforms.uPixelRatio.value = pixelRatio;
+        }
+    }
+
     destroy() {
         this.coreMat.dispose();
         this.particleMat.dispose();

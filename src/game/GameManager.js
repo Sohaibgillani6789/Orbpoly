@@ -101,6 +101,8 @@ export class GameManager {
 
         // --- Scratch Vectors for Zero Allocations ---
         this._hitDirVec = new CANNON.Vec3();
+        this._remoteHitDir = new CANNON.Vec3(); // Scratch for handleRemoteHit
+        this._zeroImpulse = new CANNON.Vec3(0, 0, 0); // Scratch for barge zero-impulse
         this._sparkLookVec = new THREE.Vector3();
         this._sparkDirVec = new THREE.Vector3();
 
@@ -582,7 +584,8 @@ export class GameManager {
         if (victimMesh && attackerMesh) {
             const dx = victimMesh.position.x - attackerMesh.position.x;
             const dz = victimMesh.position.z - attackerMesh.position.z;
-            const impactDir = new CANNON.Vec3(dx, 0, dz);
+            const impactDir = this._remoteHitDir;
+            impactDir.set(dx, 0, dz);
             
             this.triggerHitSpark(victimMesh, impactDir);
         }
@@ -845,7 +848,21 @@ export class GameManager {
         const y = 2.0;
 
         this.currentOrb.reset(x, y, z);
+        if (this._pixelRatio && this.currentOrb.setPixelRatio) {
+            this.currentOrb.setPixelRatio(this._pixelRatio);
+        }
         console.log(`✨ Pooled Orb spawned on rock1 at (${x.toFixed(1)}, ${z.toFixed(1)}) without frame drops`);
+    }
+
+    /**
+     * Set centralized pixel ratio (mobileopt.md)
+     * @param {number} pixelRatio
+     */
+    setPixelRatio(pixelRatio) {
+        this._pixelRatio = pixelRatio;
+        if (this.currentOrb && this.currentOrb.setPixelRatio) {
+            this.currentOrb.setPixelRatio(pixelRatio);
+        }
     }
 
     /**
@@ -1041,7 +1058,7 @@ export class GameManager {
                 );
                 ctrl.body.applyImpulse(barger._bargeImpulse);
                 ctrl.damagePercent += 5; // minor damage
-                ctrl.receiveHit(new CANNON.Vec3(0, 0, 0)); // triggers HIT anim + flash, no extra impulse
+                ctrl.receiveHit(this._zeroImpulse); // triggers HIT anim + flash, no extra impulse (zero-alloc)
                 hitCount++;
             }
         }

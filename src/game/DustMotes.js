@@ -123,7 +123,7 @@ export class DustMotes {
             uTime: { value: 0.0 },
             uColor: { value: new THREE.Color('#fff8d0') },
             uOpacity: { value: 0.26 },
-            uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+            uPixelRatio: { value: opts.pixelRatio || Math.min(window.devicePixelRatio, 2) },
         };
 
         const material = new THREE.ShaderMaterial({
@@ -243,6 +243,26 @@ export class DustMotes {
         this._uniforms.uColor.value.copy(color);
         this._uniforms.uOpacity.value = opacity;
         this._speedMul = speedMul;
+    }
+
+    /**
+     * Set centralized pixel ratio for particle rendering (mobileopt.md)
+     * @param {number} pixelRatio
+     */
+    setPixelRatio(pixelRatio) {
+        if (this._uniforms && this._uniforms.uPixelRatio) {
+            this._uniforms.uPixelRatio.value = pixelRatio;
+        }
+    }
+
+    /**
+     * Set particle visibility and pause/resume simulation
+     * @param {boolean} visible
+     */
+    setVisible(visible) {
+        if (this._points) {
+            this._points.visible = visible;
+        }
     }
 
     /** Dispose GPU resources. */

@@ -3,7 +3,6 @@
 // subsurface-scattered edge luminance, and subtle color variation
 precision highp float;
 
-varying vec2 vUv;
 varying vec3 vNormal;
 varying vec3 vPosition;
 
@@ -78,48 +77,32 @@ float crater(vec2 uv, vec2 center, float radius, float depth) {
 void main() {
     // Sphere-space coordinates for surface detail
     vec3 N = normalize(vNormal);
-    vec2 uv = vUv;
     
     // --- BASE COLOR: warm ivory with slight variation ---
     vec3 baseColor = vec3(0.92, 0.90, 0.82); // Warm cream-white
     
-    // --- MARIA (dark basalt plains) ---
-    // Large-scale dark patches like Mare Tranquillitatis, Mare Serenitatis
+    // --- MARIA (dark basalt plains) — 2 octaves for mobile efficiency ---
     float maria1 = snoise(vPosition * 0.7 + vec3(5.0, 0.0, 3.0));
     float maria2 = snoise(vPosition * 1.2 + vec3(10.0, 5.0, 7.0));
-    float maria3 = snoise(vPosition * 0.4 + vec3(2.0, 8.0, 1.0));
-    
-    // Combine maria — creates distinct dark regions
-    float mariaFactor = smoothstep(0.1, 0.55, maria1 * 0.6 + maria2 * 0.3 + maria3 * 0.1);
-    vec3 mariaColor = vec3(0.65, 0.63, 0.58); // Slightly darker, cooler grey
+    float mariaFactor = smoothstep(0.1, 0.55, maria1 * 0.7 + maria2 * 0.3);
+    vec3 mariaColor = vec3(0.65, 0.63, 0.58);
     baseColor = mix(baseColor, mariaColor, mariaFactor * 0.45);
     
-    // --- FINE SURFACE TEXTURE (regolith) ---
-    float regolith1 = snoise(vPosition * 4.0 + vec3(20.0));
-    float regolith2 = snoise(vPosition * 8.0 + vec3(40.0));
-    float regolith = regolith1 * 0.5 + regolith2 * 0.25;
-    baseColor += regolith * 0.04; // Very subtle surface roughness
+    // --- FINE SURFACE TEXTURE (regolith) — single octave ---
+    float regolith = snoise(vPosition * 4.0 + vec3(20.0));
+    baseColor += regolith * 0.03;
     
     // --- PROCEDURAL CRATERS ---
-    // Convert sphere coordinates to stable UV for crater placement
     vec3 sp = normalize(vPosition);
     
-    // Large craters (Tycho, Copernicus scale)
     float craterEffect = 0.0;
     craterEffect += crater(sp.xy, vec2(0.3, 0.5), 0.18, 0.12);
     craterEffect += crater(sp.xy, vec2(-0.4, 0.2), 0.14, 0.10);
     craterEffect += crater(sp.xz, vec2(0.1, -0.3), 0.22, 0.08);
     craterEffect += crater(sp.yz, vec2(-0.2, 0.4), 0.16, 0.11);
     
-    // Medium craters
-    craterEffect += crater(sp.xy, vec2(0.6, -0.1), 0.08, 0.07);
-    craterEffect += crater(sp.xz, vec2(-0.5, 0.5), 0.10, 0.06);
-    craterEffect += crater(sp.yz, vec2(0.4, -0.5), 0.07, 0.08);
-    craterEffect += crater(sp.xy, vec2(-0.1, -0.6), 0.09, 0.05);
-    craterEffect += crater(sp.xz, vec2(0.7, 0.3), 0.06, 0.06);
-    
-    // Small craters (noise-driven, many tiny ones)
-    float smallCraters = snoise(vPosition * 6.0) * 0.5 + snoise(vPosition * 12.0) * 0.25;
+    // Small craters
+    float smallCraters = snoise(vPosition * 6.0);
     smallCraters = max(0.0, smallCraters - 0.3) * 0.15;
     craterEffect += smallCraters;
     

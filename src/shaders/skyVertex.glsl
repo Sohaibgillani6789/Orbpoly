@@ -1,6 +1,4 @@
 // skyVertex.glsl — Pixar Sky System
-// Computes view direction in vertex shader (optimization: avoids per-pixel normalize)
-// OPTIMIZATION: horizon blend precomputed here to save fragment ops
 
 varying vec3 vWorldPosition;
 varying vec3 vViewDirection;

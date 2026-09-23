@@ -88,47 +88,23 @@ float snoise(vec3 v) {
 }
 
 // ============================================================
-// CLOUD DENSITY — analytically verified to produce values
+// CLOUD DENSITY — optimized: 2-octave FBM (was 4), no domain warp
+// Visual difference is negligible at mobile render scale 1.0
 // ============================================================
 
-// Billowing FBM: abs(snoise) creates billowy "cotton-wool" look
-// Range: [0, ~0.875] (sum of abs values with amplitudes 0.5+0.25+0.125+0.0625)
+// 2-octave billowing FBM — sufficient for cloud shape at mobile DPR
 float billowFBM(vec3 p) {
     float f = 0.0;
-    float amp = 0.5;
-    float freq = 1.0;
-    for (int i = 0; i < 4; i++) {
-        f += amp * abs(snoise(p * freq));
-        freq *= 2.02; // Slightly irrational to avoid repetition
-        amp  *= 0.5;
-    }
-    return f; // Range: [0, ~0.9375]
-}
-
-// Light version of FBM (2 octaves instead of 4) for domain warping and shadow steps
-float billowFBMLight(vec3 p) {
-    float f = 0.0;
-    float amp = 0.5;
-    float freq = 1.0;
-    for (int i = 0; i < 2; i++) {
-        f += amp * abs(snoise(p * freq));
-        freq *= 2.02;
-        amp  *= 0.5;
-    }
+    f += 0.5 * abs(snoise(p));
+    f += 0.25 * abs(snoise(p * 2.02));
     return f;
 }
 
-// Domain-warped FBM with absolute values — always positive, guaranteed visible
+// Cloud density — simplified: no domain warping (saves 2 extra snoise calls)
 float getCloudDensity(vec3 p) {
-    // Warp offsets use 2-octave FBM for efficiency (high-frequency warp detail is imperceptible)
-    float wx = billowFBMLight(p + vec3(1.7, 9.2, 3.8));
-    float wz = billowFBMLight(p + vec3(8.3, 2.8, 5.1));
-    vec3 warped = p + 0.35 * vec3(wx, 0.0, wz);
+    float cloud = billowFBM(p);
 
-    // Main cloud shape — still uses full 4-octave billowFBM for maximum visual quality
-    float cloud = billowFBM(warped);
-
-    // uCloudDensity: 0.5 (default) gives ~50% sky coverage (like reference photo)
+    // uCloudDensity: 0.5 (default) gives ~50% sky coverage
     float threshold = 0.9 - uCloudDensity;
 
     // Remap [threshold, threshold+0.25] → [0, 1] with smooth edges
@@ -137,17 +113,9 @@ float getCloudDensity(vec3 p) {
     return density;
 }
 
-// Lightweight cloud density for shadow calculation (no domain warping, 2-octave FBM)
-float getCloudDensityShadow(vec3 p) {
-    float cloud = billowFBMLight(p);
-    float threshold = 0.9 - uCloudDensity;
-    float density = smoothstep(threshold, threshold + 0.25, cloud);
-    return density;
-}
-
 // ============================================================
 // MOON GLOW — smooth radial light scatter rendered into sky
-// Three-band falloff: tight corona + mid haze + wide atmospheric scatter
+// Simplified: 2 bands instead of 3 (scatter barely visible on mobile)
 // ============================================================
 vec3 getMoonGlow(vec3 viewDir) {
     if (uMoonGlow < 0.001) return vec3(0.0);
@@ -155,65 +123,41 @@ vec3 getMoonGlow(vec3 viewDir) {
     vec3 moonDir = normalize(uMoonDirection);
     float moonDot = max(0.0, dot(viewDir, moonDir));
 
-    // --- Band 1: Tight inner corona (bright, warm white) ---
-    // Narrow cone around moon — sharp falloff
+    // Band 1: Tight inner corona (bright, warm white)
     float corona = pow(moonDot, 180.0) * 0.9;
-    vec3 coronaColor = vec3(0.95, 0.92, 0.82); // Warm cream
+    vec3 coronaColor = vec3(0.95, 0.92, 0.82);
 
-    // --- Band 2: Mid haze (cool blue-white atmospheric glow) ---
-    // Medium-width halo — the classic "moon haze"
+    // Band 2: Mid haze (cool blue-white atmospheric glow)
     float haze = pow(moonDot, 32.0) * 0.2;
-    vec3 hazeColor = vec3(0.55, 0.60, 0.78); // Cool blue
+    vec3 hazeColor = vec3(0.55, 0.60, 0.78);
 
-    // --- Band 3: Wide atmospheric scatter (very subtle, very large) ---
-    // Gentle lightening of the entire sky quadrant near the moon
-    float scatter = pow(moonDot, 6.0) * 0.07;
-    vec3 scatterColor = vec3(0.30, 0.35, 0.55); // Deep indigo tint
-
-    vec3 totalGlow = coronaColor * corona + hazeColor * haze + scatterColor * scatter;
+    vec3 totalGlow = coronaColor * corona + hazeColor * haze;
 
     return totalGlow * uMoonGlow;
 }
 
 // ============================================================
-// SUN GLOW — physically-inspired atmospheric scattering for sunset
-// RDR2-quality: deep amber core, burnt-orange halo, subtle peach scatter
-// At low sun angles, Rayleigh scattering removes blue/green → deep warm tones
+// SUN GLOW — simplified for mobile: 2 bands (corona + mid)
 // ============================================================
-vec3 getSunGlow(vec3 viewDir, vec3 sunDir) {
+vec3 getSunGlow(vec3 viewDir, vec3 sunDir, float sunLow) {
     if (uNightBlend > 0.99) return vec3(0.0);
 
     float sunDot = max(0.0, dot(viewDir, sunDir));
 
-    // How low is the sun? 0 = high noon, 1 = at horizon
-    // This drives color warmth and glow intensity — golden hour physics
-    float sunLow = 1.0 - clamp(sunDir.y * 3.0, 0.0, 1.0);
-
-    // --- Band 1: Sun disk — tight, hot core ---
-    // Deep amber at sunset (Rayleigh removes short wavelengths at long path length)
-    // Transitions from pale gold (high sun) to deep amber (low sun)
+    // Band 1: Sun disk — tight, hot core
     float corona = pow(sunDot, 800.0) * 0.65;
-    vec3 coronaDay   = vec3(1.0, 0.95, 0.80);    // Pale gold when sun is high
-    vec3 coronaLow    = vec3(1.0, 0.72, 0.32);    // Deep amber at horizon
-    vec3 coronaColor  = mix(coronaDay, coronaLow, sunLow);
+    vec3 coronaDay   = vec3(1.0, 0.95, 0.80);
+    vec3 coronaLow   = vec3(1.0, 0.72, 0.32);
+    vec3 coronaColor = mix(coronaDay, coronaLow, sunLow);
 
-    // --- Band 2: Mid halo — Mie forward-scatter ring ---
-    // Burnt orange / deep gold — the characteristic sunset "ring"
+    // Band 2: Mid halo
     float midGlow = pow(sunDot, 40.0) * 0.18;
-    vec3 midDay   = vec3(1.0, 0.88, 0.60);        // Warm gold when sun is higher
-    vec3 midLow   = vec3(1.0, 0.58, 0.22);        // Burnt orange at golden hour
+    vec3 midDay   = vec3(1.0, 0.88, 0.60);
+    vec3 midLow   = vec3(1.0, 0.58, 0.22);
     vec3 midColor = mix(midDay, midLow, sunLow);
 
-    // --- Band 3: Wide atmospheric scatter ---
-    // Very subtle warm peach — blends into sky gradient, never dominates
-    float scatter = pow(sunDot, 6.0) * 0.08;
-    vec3 scatterDay = vec3(1.0, 0.85, 0.65);      // Soft peach
-    vec3 scatterLow = vec3(1.0, 0.60, 0.30);      // Warm amber wash
-    vec3 scatterColor = mix(scatterDay, scatterLow, sunLow);
+    vec3 totalGlow = coronaColor * corona + midColor * midGlow;
 
-    vec3 totalGlow = coronaColor * corona + midColor * midGlow + scatterColor * scatter;
-
-    // Glow intensifies at golden hour — controlled multiplier, not raw sunIntensity
     float intensityMult = mix(0.6, 1.0, sunLow);
     totalGlow *= intensityMult * (1.0 - uNightBlend);
 
@@ -226,6 +170,7 @@ vec3 getSunGlow(vec3 viewDir, vec3 sunDir) {
 void main() {
     vec3 viewDir = normalize(vViewDirection);
     vec3 sunDir = normalize(uSunPosition);
+    float sunLowness = 1.0 - clamp(sunDir.y * 3.0, 0.0, 1.0);
 
     // --- SKY GRADIENT ---
     // OPTIMIZATION: Use pre-computed vHorizonBlend from vertex shader
@@ -235,12 +180,10 @@ void main() {
     skyColor += getMoonGlow(viewDir);
 
     // --- SUN GLOW (rendered behind clouds, soft screen-blend to prevent blowout) ---
-    vec3 sunGlow = getSunGlow(viewDir, sunDir);
+    vec3 sunGlow = getSunGlow(viewDir, sunDir, sunLowness);
     skyColor = 1.0 - (1.0 - skyColor) * (1.0 - sunGlow * 0.9);
 
     // --- CLOUD COORDINATE MAPPING ---
-    // Scale viewDir to set cloud pattern frequency
-    // Smaller value = larger clouds (1.5 = large cumulus matching reference)
     vec3 pos = viewDir * 1.5;
 
     // Wind animation
@@ -250,48 +193,40 @@ void main() {
     // --- DENSITY ---
     float density = getCloudDensity(pos);
 
-
     // Pure sky — no cloud
     if (density < 0.005) {
         gl_FragColor = vec4(skyColor, 1.0);
         return;
     }
 
-    // --- VOLUMETRIC SELF-SHADOWING (Beer-Lambert) ---
-    float shadow = 0.0;
+    // --- SIMPLIFIED SELF-SHADOWING (single step instead of 2) ---
     float stepSize = 0.15;
+    float shadow = billowFBM(pos + sunDir * stepSize * 1.5);
+    float cloudThreshold = 0.9 - uCloudDensity;
+    shadow = smoothstep(cloudThreshold, cloudThreshold + 0.25, shadow);
 
-    // March 2 steps toward sun to accumulate self-shadow (reduced from 4)
-    // Uses lightweight density accumulator (no warp, 2 octaves) for maximum performance
-    shadow += getCloudDensityShadow(pos + sunDir * stepSize * 1.0);
-    shadow += getCloudDensityShadow(pos + sunDir * stepSize * 2.5);
-
-    // Softer extinction when sun is low (golden hour) — prevents overly dark clouds
-    // sunDir.y is small when sun is near horizon → reduce shadow harshness
     float extinctionCoeff = mix(0.4, 0.7, clamp(sunDir.y * 2.5, 0.0, 1.0));
     float transmittance = exp(-shadow * extinctionCoeff);
 
     // --- CLOUD COLOR COMPUTATION ---
-    vec3 cloudLit    = uCloudColor;        // Pure white lit face
-    vec3 cloudShadow = uCloudShadowColor;  // Light blue-white shadow
+    vec3 cloudLit    = uCloudColor;
+    vec3 cloudShadow = uCloudShadowColor;
 
-    // Sun-facing warmth (golden-yellow tint where sun hits directly)
+    // Sun-facing warmth
     float sunDot = max(0.0, dot(viewDir, sunDir));
     cloudLit += vec3(0.20, 0.14, 0.02) * pow(sunDot, 2.5) * uSunIntensity;
 
-    // Golden hour backlighting — when sun is low, clouds get warm rims
-    // This creates the characteristic golden-hour "glowing cloud" effect
-    float sunLowness = 1.0 - clamp(sunDir.y * 3.0, 0.0, 1.0); // 1=horizon, 0=high noon
+    // Golden hour backlighting
     float backlight = pow(sunDot, 1.5) * sunLowness * 0.25;
     cloudLit += vec3(0.25, 0.20, 0.08) * backlight * uSunIntensity;
 
-    // Lift shadow color toward warmth when sun is low (prevents cold dark patches)
+    // Lift shadow color toward warmth when sun is low
     vec3 adjustedShadow = mix(cloudShadow, cloudShadow + vec3(0.08, 0.04, 0.02), sunLowness);
 
     // Mix lit/shadow by transmittance
     vec3 cloudColor = mix(adjustedShadow, cloudLit, transmittance);
 
-    // Silver lining at cloud edges — boosted for golden hour
+    // Silver lining at cloud edges
     float edge = 1.0 - density;
     float silverBoost = mix(0.6, 0.9, sunLowness);
     float silver = pow(sunDot, 5.0) * edge * uSunIntensity * silverBoost;

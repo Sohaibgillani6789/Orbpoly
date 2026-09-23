@@ -69,12 +69,20 @@ export class HUD {
         const item = this.playerElements.get(playerId);
         if (!item) return;
 
-        // Position on screen
-        item.el.style.transform = `translate(-50%, -100%) translate(${screenPos.x}px, ${screenPos.y}px)`;
+        // Position on screen — use CSS transform, skip if within 1px tolerance
+        const px = Math.round(screenPos.x);
+        const py = Math.round(screenPos.y);
+        if (item._lastPx !== px || item._lastPy !== py) {
+            item.el.style.transform = `translate(-50%, -100%) translate(${px}px, ${py}px)`;
+            item._lastPx = px;
+            item._lastPy = py;
+        }
 
-        // Damage text
-        if (item.damageDisplay) {
-            item.damageDisplay.textContent = `${Math.round(damagePercent)}%`;
+        // Damage text — only update when changed (mobileopt.md: dirty-flag HUD)
+        const roundedDamage = Math.round(damagePercent);
+        if (item.damageDisplay && item._lastDamage !== roundedDamage) {
+            item.damageDisplay.textContent = `${roundedDamage}%`;
+            item._lastDamage = roundedDamage;
 
             // Color shift: white(0%) → yellow(75%) → red(150%+)
             const t = Math.min(damagePercent / 150, 1);
@@ -84,13 +92,18 @@ export class HUD {
             item.damageDisplay.style.color = `rgb(${r}, ${g}, ${b})`;
         }
 
-        // Lives display (hearts)
-        if (item.livesDisplay) {
+        // Lives display (hearts) — only update when changed
+        if (item.livesDisplay && item._lastLives !== lives) {
             item.livesDisplay.textContent = '❤️'.repeat(Math.max(0, lives));
+            item._lastLives = lives;
         }
 
-        // Visibility
-        item.el.style.display = screenPos.visible ? 'block' : 'none';
+        // Visibility — only toggle when changed
+        const vis = screenPos.visible ? 'block' : 'none';
+        if (item._lastVis !== vis) {
+            item.el.style.display = vis;
+            item._lastVis = vis;
+        }
     }
 
     /**

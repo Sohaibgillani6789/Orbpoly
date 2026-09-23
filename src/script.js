@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import grassVertexShader from './shaders/grassVertex.glsl';
 import grassFragmentShader from './shaders/grassFragment.glsl';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import skyVertexShader from './shaders/skyVertex.glsl';
 import skyFragmentShader from './shaders/skyFragment.glsl';
@@ -15,9 +14,124 @@ import { GameManager } from './game/GameManager.js';
 import { NetworkManager } from './game/NetworkManager.js';
 import { DustMotes } from './game/DustMotes.js';
 import { poki } from './game/PokiBridge.js';
+import { instantiateCharacter } from './game/AssetManager.js';
+
+// Safe Pointer Capture Polyfill (averts browser-level InvalidStateError race conditions in OrbitControls & preview canvas)
+if (typeof Element !== 'undefined' && Element.prototype.setPointerCapture) {
+    const _origSetPointerCapture = Element.prototype.setPointerCapture;
+    Element.prototype.setPointerCapture = function(pointerId) {
+        try {
+            _origSetPointerCapture.call(this, pointerId);
+        } catch (err) {
+            if (err.name !== 'InvalidStateError') throw err;
+        }
+    };
+    const _origReleasePointerCapture = Element.prototype.releasePointerCapture;
+    if (_origReleasePointerCapture) {
+        Element.prototype.releasePointerCapture = function(pointerId) {
+            try {
+                _origReleasePointerCapture.call(this, pointerId);
+            } catch (err) {
+                if (err.name !== 'InvalidStateError') throw err;
+            }
+        };
+    }
+}
 
 // Initialize Poki SDK immediately at startup
 poki.init();
+
+// ============================================================
+// MOBILE DEVICE DETECTION (must be early — used by geometry/particle config)
+// ============================================================
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+        || ('ontouchstart' in window && window.innerWidth < 1024);
+}
+const _isMobile = isMobileDevice();
+
+/**
+ * Mobile device detection & DPR optimization (Phase 8 — mobileopt.md)
+ * Centralized render-scale policy: one DPR for all renderers.
+ */
+const MOBILE_RENDER_SCALE = {
+    low: 1.0,
+    normal: 1.25,
+    high: 1.5,
+};
+
+let adaptiveRenderScale = 1.0;
+
+function getInitialRenderScale() {
+    if (!_isMobile) {
+        return Math.min(window.devicePixelRatio || 1, 2.0);
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const memory = navigator.deviceMemory || 4;
+    const cores = navigator.hardwareConcurrency || 4;
+    // Conservative default for low-end Android devices.
+    if (memory <= 4 || cores <= 4 || dpr >= 2) {
+        return MOBILE_RENDER_SCALE.low;
+    }
+    return MOBILE_RENDER_SCALE.normal;
+}
+
+function getEffectivePixelRatio() {
+    const maxScale = _isMobile ? 1.25 : 2.0;
+    const initialScale = getInitialRenderScale();
+    return Math.max(
+        0.75,
+        Math.min(initialScale * adaptiveRenderScale, maxScale)
+    );
+}
+
+let previewRenderer = null;
+
+function applyRendererPixelRatio() {
+    const pixelRatio = getEffectivePixelRatio();
+    if (typeof renderer !== 'undefined' && renderer) {
+        renderer.setPixelRatio(pixelRatio);
+    }
+    if (typeof previewRenderer !== 'undefined' && previewRenderer) {
+        previewRenderer.setPixelRatio(_isMobile ? Math.min(pixelRatio, 1.0) : Math.min(pixelRatio, 2.0));
+    }
+    // DustMotes use the centralized ratio
+    if (typeof dustMotes !== 'undefined' && dustMotes && dustMotes.setPixelRatio) {
+        dustMotes.setPixelRatio(pixelRatio);
+    }
+    // Propagate to gameManager objects (orbs, particles)
+    if (typeof gameManager !== 'undefined' && gameManager && gameManager.setPixelRatio) {
+        gameManager.setPixelRatio(pixelRatio);
+    }
+}
+
+// --- Adaptive Frame-Time Governor (mobileopt.md) ---
+const frameTimeSamples = [];
+const FRAME_SAMPLE_LIMIT = 120;
+let qualityCooldown = 0;
+
+function updateMobilePerformanceGovernor(deltaTime) {
+    if (!_isMobile) return;
+    const frameMs = deltaTime * 1000;
+    frameTimeSamples.push(frameMs);
+    if (frameTimeSamples.length > FRAME_SAMPLE_LIMIT) {
+        frameTimeSamples.shift();
+    }
+    qualityCooldown -= deltaTime;
+    if (qualityCooldown > 0 || frameTimeSamples.length < 60) return;
+    let total = 0;
+    for (let i = 0; i < frameTimeSamples.length; i++) total += frameTimeSamples[i];
+    const averageMs = total / frameTimeSamples.length;
+    if (averageMs > 22 && adaptiveRenderScale > 0.8) {
+        adaptiveRenderScale = Math.max(0.8, adaptiveRenderScale - 0.1);
+        applyRendererPixelRatio();
+        qualityCooldown = 3.0;
+    } else if (averageMs < 14 && adaptiveRenderScale < 1.0) {
+        adaptiveRenderScale = Math.min(1.0, adaptiveRenderScale + 0.1);
+        applyRendererPixelRatio();
+        qualityCooldown = 5.0;
+    }
+}
 
 // All available character IDs for random bot selection
 const ALL_CHARACTERS = ['warrior', 'wizard', 'rogue', 'ranger', 'monk', 'cleric'];
@@ -121,18 +235,12 @@ playButton.addEventListener('click', () => {
 });
 
 // Grass
-const grassTexture = textureLoader.load(
-    '/textures/grass/grass.jpg',
-    () => console.log("✅ Grass texture loaded")
-);
+const grassTexture = textureLoader.load('/textures/grass/grass.jpg');
 grassTexture.wrapS = grassTexture.wrapT = THREE.RepeatWrapping;
 grassTexture.colorSpace = THREE.SRGBColorSpace;
 
 // Clouds
-const cloudTexture = textureLoader.load(
-    '/textures/clouds/cloud.jpg',
-    () => console.log("✅ Cloud texture loaded")
-);
+const cloudTexture = textureLoader.load('/textures/clouds/cloud.jpg');
 cloudTexture.wrapS = cloudTexture.wrapT = THREE.RepeatWrapping;
 cloudTexture.repeat.set(2, 2);
 cloudTexture.colorSpace = THREE.SRGBColorSpace;
@@ -156,7 +264,10 @@ const grassUniforms = {
     uCenterDistance: { value: 0.1 },
     // Lighting & color uniforms
     uSunDirection: { value: new THREE.Vector3(0.4, 0.6, 0.8).normalize() },
+    uSunNdotL: { value: 0.6 },
     uAmbientLightColor: { value: new THREE.Color('#b9d5ff') }, // Synced from scene ambient light
+    uAmbientInfluence: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+    uCloudDrift: { value: new THREE.Vector2(0, 0) },
     uAOStrength: { value: 0.75 },
     uSSSStrength: { value: 0.35 },
     uHueVariation: { value: 1.0 },
@@ -166,6 +277,7 @@ const grassUniforms = {
     // Exponential fog (synced from scene)
     uFogColor: { value: new THREE.Color('#a8d8ff') },
     uFogDensity: { value: 0.015 },
+    uFogDensitySq: { value: 0.015 * 0.015 },
 };
 
 const grassMaterial = new THREE.ShaderMaterial({
@@ -226,6 +338,10 @@ function generateField() {
         const leanMidX = leanX * 0.4;
         const leanMidZ = leanZ * 0.4;
 
+        // Precompute variation & phase per blade (zero runtime shader hash / trig)
+        const variation = Math.random();
+        const phase = Math.random();
+
         // Base Left (ground level, black)
         posBuffer[posIdx++] = cx + yawX * HALF_BLADE_WIDTH;
         posBuffer[posIdx++] = 0;
@@ -233,8 +349,8 @@ function generateField() {
         uvBuffer[uvIdx++] = u;
         uvBuffer[uvIdx++] = v;
         colorBuffer[colorIdx++] = 0;
-        colorBuffer[colorIdx++] = 0;
-        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = variation;
+        colorBuffer[colorIdx++] = phase;
 
         // Base Right (ground level, black)
         posBuffer[posIdx++] = cx - yawX * HALF_BLADE_WIDTH;
@@ -243,8 +359,8 @@ function generateField() {
         uvBuffer[uvIdx++] = u;
         uvBuffer[uvIdx++] = v;
         colorBuffer[colorIdx++] = 0;
-        colorBuffer[colorIdx++] = 0;
-        colorBuffer[colorIdx++] = 0;
+        colorBuffer[colorIdx++] = variation;
+        colorBuffer[colorIdx++] = phase;
 
         // Mid Right (mid level, gray)
         posBuffer[posIdx++] = cx - yawX * HALF_MID_WIDTH + leanMidX;
@@ -253,8 +369,8 @@ function generateField() {
         uvBuffer[uvIdx++] = u;
         uvBuffer[uvIdx++] = v;
         colorBuffer[colorIdx++] = 0.5;
-        colorBuffer[colorIdx++] = 0.5;
-        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = variation;
+        colorBuffer[colorIdx++] = phase;
 
         // Mid Left (mid level, gray)
         posBuffer[posIdx++] = cx + yawX * HALF_MID_WIDTH + leanMidX;
@@ -263,8 +379,8 @@ function generateField() {
         uvBuffer[uvIdx++] = u;
         uvBuffer[uvIdx++] = v;
         colorBuffer[colorIdx++] = 0.5;
-        colorBuffer[colorIdx++] = 0.5;
-        colorBuffer[colorIdx++] = 0.5;
+        colorBuffer[colorIdx++] = variation;
+        colorBuffer[colorIdx++] = phase;
 
         // Tip Center (full height, white)
         posBuffer[posIdx++] = cx + tipX * TIP_OFFSET + leanX;
@@ -273,8 +389,8 @@ function generateField() {
         uvBuffer[uvIdx++] = u;
         uvBuffer[uvIdx++] = v;
         colorBuffer[colorIdx++] = 1.0;
-        colorBuffer[colorIdx++] = 1.0;
-        colorBuffer[colorIdx++] = 1.0;
+        colorBuffer[colorIdx++] = variation;
+        colorBuffer[colorIdx++] = phase;
 
         // Indices
         const vArrOffset = i * 5;
@@ -321,15 +437,7 @@ light.position.set(10, 10, 10);
 let loadedCharacterData = null;
 
 async function loadCharacters(charId) {
-    const gltfLoader = new GLTFLoader(); // Do not use initial loadingManager
-
-    const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
-
-    const gltf = await new Promise((resolve, reject) => {
-        gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
-    });
-
-    const { scene: model, animations = [] } = gltf;
+    const { name: modelName, model, animations } = await instantiateCharacter(charId);
 
     // Position at edge of island
     model.position.set(0, 0, 18);
@@ -521,7 +629,7 @@ function transitionTo(moodKey) {
     console.log(`🌤️ Transitioning to: ${moodKey}`);
 }
 
-const skyGeometry = new THREE.IcosahedronGeometry(50, 15);
+const skyGeometry = new THREE.SphereGeometry(50, 32, 16);
 const skyMaterial = new THREE.ShaderMaterial({
     vertexShader: skyVertexShader,
     fragmentShader: skyFragmentShader,
@@ -935,10 +1043,11 @@ scene.fog = sceneFog;
 
 // ── Ambient Dust Motes — atmospheric depth particles ──
 const dustMotes = new DustMotes(scene, {
-    count: 800,
+    count: _isMobile ? 300 : 800, // Reduced on mobile (mobileopt.md)
     radius: 30,
     heightMin: -5,
     heightMax: 12,
+    pixelRatio: getEffectivePixelRatio(), // Centralized pixel ratio
 });
 // Pre-allocated scratch color for dust mote mood lerping (zero-GC)
 const _moteScratchColor = new THREE.Color();
@@ -980,23 +1089,13 @@ controls.minDistance = 0;
 // Maximum zoom (how far the camera can move away from the focus point)
 controls.maxDistance = Infinity;
 
-/**
- * Mobile device detection & DPR optimization (Phase 6)
- */
-const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024);
-
-function getEffectivePixelRatio() {
-    const dpr = window.devicePixelRatio || 1;
-    // On mobile, cap DPR at 1.5 to prevent GPU fill-rate exhaustion on 1080p/1440p screens
-    return isMobileDevice ? Math.min(dpr, 1.5) : Math.min(dpr, 2.0);
-}
 
 /**
  * Renderer
  */
 const renderer = new THREE.WebGLRenderer({
     canvas: canvas,
-    antialias: !isMobileDevice, // Disable expensive MSAA on mobile for fill-rate efficiency
+    antialias: !_isMobile, // Disable expensive MSAA on mobile for fill-rate efficiency
     powerPreference: 'high-performance'
 })
 renderer.setClearColor('#3da5f5') // Match sky horizon color
@@ -1011,22 +1110,35 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.85; // Brighter for daytime
 renderer.shadowMap.enabled = false;   // Explicitly disable shadow maps (Phase 7)
 
-window.addEventListener('resize', () => {
-    // Update sizes
-    sizes.width = window.innerWidth
-    sizes.height = window.innerHeight
+function handleResize() {
+    sizes.width = window.innerWidth;
+    sizes.height = window.innerHeight;
 
-    // Update camera
-    camera.aspect = sizes.width / sizes.height
-    camera.updateProjectionMatrix()
+    camera.aspect = sizes.width / sizes.height;
+    camera.updateProjectionMatrix();
 
-    // Update sky resolution uniform
     skyUniforms.uResolution.value.set(sizes.width, sizes.height);
 
-    // Update renderer
     renderer.setSize(sizes.width, sizes.height);
-    renderer.setPixelRatio(getEffectivePixelRatio());
-})
+    applyRendererPixelRatio();
+}
+
+window.addEventListener('resize', handleResize);
+window.addEventListener('orientationchange', () => {
+    // Delay slightly to let mobile browser finish layout transition
+    setTimeout(handleResize, 150);
+});
+
+// WebGL Context lifecycle (mobileopt.md)
+canvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    console.warn('⚠️ WebGL context lost');
+}, false);
+
+canvas.addEventListener('webglcontextrestored', () => {
+    console.log('🔄 WebGL context restored');
+    applyRendererPixelRatio();
+}, false);
 
 /**
  * Tab Visibility API (Poki requirement: pause GPU/sound when tab is hidden)
@@ -1072,6 +1184,9 @@ const tick = () => {
     // Phase 5: Delta-time clamping (cap maximum step to 50ms / 20FPS floor to prevent tab-switch physics explosions)
     const deltaTime = Math.min(rawDelta, 0.05);
 
+    // Adaptive quality governor (mobileopt.md) — adjusts render scale based on real frame time
+    updateMobilePerformanceGovernor(deltaTime);
+
     // Camera sweep animation — starts below island, sweeps up to scene view
     if (cameraAnimation.active) {
         const now = Date.now();
@@ -1113,8 +1228,10 @@ const tick = () => {
     // Update controls
     controls.update()
 
-    // Animate grass: scale to ms to match shader
-    grassUniforms.iTime.value = elapsedTime * 1000.0;
+    // Animate grass: scale to ms to match shader and update cloud drift
+    const grassMs = elapsedTime * 1000.0;
+    grassUniforms.iTime.value = grassMs;
+    grassUniforms.uCloudDrift.value.set(grassMs / 40000.0, grassMs / 20000.0);
 
     // ☁️ Animate Sky
     skyUniforms.uTime.value = elapsedTime;
@@ -1152,7 +1269,16 @@ const tick = () => {
 
             // --- Sync grass sun direction + ambient color ---
             grassUniforms.uSunDirection.value.copy(skyUniforms.uSunPosition.value).normalize();
+            grassUniforms.uSunNdotL.value = Math.max(0.0, grassUniforms.uSunDirection.value.y);
             grassUniforms.uAmbientLightColor.value.copy(ambientLight.color);
+
+            // Compute ambient influence once per frame (eliminates 600k ops in shaders)
+            const amb = ambientLight.color;
+            grassUniforms.uAmbientInfluence.value.set(
+                1.0 + (Math.max(0.2, Math.min(1.5, amb.r / 0.73)) - 1.0) * 0.55,
+                1.0 + (Math.max(0.2, Math.min(1.5, amb.g / 0.84)) - 1.0) * 0.55,
+                1.0 + (Math.max(0.2, Math.min(1.5, amb.b / 1.0)) - 1.0) * 0.55
+            );
 
             // --- Grass mood tinting ---
             grassUniforms.uMoodTint.value.lerp(target.grassTint, lerpFactor);
@@ -1173,6 +1299,7 @@ const tick = () => {
             // --- Sync fog uniforms to custom shaders ---
             grassUniforms.uFogColor.value.copy(sceneFog.color);
             grassUniforms.uFogDensity.value = sceneFog.density;
+            grassUniforms.uFogDensitySq.value = sceneFog.density * sceneFog.density;
             rockUniforms.uFogColor.value.copy(sceneFog.color);
             rockUniforms.uFogDensity.value = sceneFog.density;
 
@@ -1348,15 +1475,8 @@ async function initGameManager(charId, charData) {
  * Does NOT modify the global loadedCharacterData.
  */
 async function loadBotCharacter(charId) {
-    const gltfLoader = new GLTFLoader();
-    const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
-
     try {
-        const gltf = await new Promise((resolve, reject) => {
-            gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
-        });
-
-        const { scene: model, animations = [] } = gltf;
+        const { name: modelName, model, animations } = await instantiateCharacter(charId);
         model.position.set(0, 0, -18); // Opposite edge from player spawn
 
         model.traverse((child) => {
@@ -1373,7 +1493,7 @@ async function loadBotCharacter(charId) {
 
         return { name: modelName, model, animations };
     } catch (err) {
-        console.error(`❌ Failed to load bot model ${modelName}:`, err);
+        console.error(`❌ Failed to load bot model ${charId}:`, err);
         return null;
     }
 }
@@ -1484,12 +1604,12 @@ function initializeScene() {
     previewCamera.lookAt(0, 1.2, 0);
 
     // Renderer — targets the preview canvas
-    let previewRenderer = null;
+    previewRenderer = null;
     if (previewCanvas) {
         previewRenderer = new THREE.WebGLRenderer({
             canvas: previewCanvas,
             alpha: true,
-            antialias: true,
+            antialias: !_isMobile, // Disable MSAA on mobile preview (mobileopt.md)
             powerPreference: 'high-performance'
         });
         previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1524,14 +1644,7 @@ function initializeScene() {
             return modelCache.get(charId);
         }
 
-        const gltfLoader = new GLTFLoader();
-        const modelName = charId.charAt(0).toUpperCase() + charId.slice(1);
-
-        const gltf = await new Promise((resolve, reject) => {
-            gltfLoader.load(`/models/characters/${modelName}.glb`, resolve, undefined, reject);
-        });
-
-        const { scene: model, animations = [] } = gltf;
+        const { name: modelName, model, animations } = await instantiateCharacter(charId);
 
         // Position at origin for preview
         model.position.set(0, 0, 0);
@@ -1637,7 +1750,7 @@ function initializeScene() {
         const w = rect.width;
         const h = rect.height;
         previewRenderer.setSize(w, h, false);
-        previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        previewRenderer.setPixelRatio(_isMobile ? Math.min(getEffectivePixelRatio(), 1.0) : Math.min(window.devicePixelRatio, 2));
         previewCamera.aspect = w / h;
         previewCamera.updateProjectionMatrix();
     }
@@ -1696,8 +1809,19 @@ function initializeScene() {
 
     // ── Preview Render Loop (integrated into main tick) ──
     // Store reference to update function for tick loop
+    let _previewFrameSkip = 0; // For 30 FPS throttle on mobile
     window.__updateCharPreview = function(deltaTime) {
         if (!previewActive || !previewRenderer) return;
+
+        // Throttle preview to 30 FPS on mobile (mobileopt.md)
+        if (_isMobile) {
+            _previewFrameSkip++;
+            if (_previewFrameSkip % 2 !== 0) {
+                // Still update animation mixer at 60Hz for smoothness, skip render
+                if (currentPreviewMixer) currentPreviewMixer.update(deltaTime);
+                return;
+            }
+        }
 
         // Update animation mixer
         if (currentPreviewMixer) {

@@ -12,6 +12,55 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./char-select.css">
   <script src="https://game-cdn.poki.com/scripts/v2/poki-sdk.js"></script>
+  <script>
+    // Safe Pointer Capture guard (averts browser-level InvalidStateError race conditions in OrbitControls & canvas drag)
+    if (typeof Element !== 'undefined' && Element.prototype.setPointerCapture) {
+      const _origSetPointerCapture = Element.prototype.setPointerCapture;
+      Element.prototype.setPointerCapture = function(pointerId) {
+        try {
+          _origSetPointerCapture.call(this, pointerId);
+        } catch (err) {
+          if (err.name !== 'InvalidStateError') throw err;
+        }
+      };
+      const _origReleasePointerCapture = Element.prototype.releasePointerCapture;
+      if (_origReleasePointerCapture) {
+        Element.prototype.releasePointerCapture = function(pointerId) {
+          try {
+            _origReleasePointerCapture.call(this, pointerId);
+          } catch (err) {
+            if (err.name !== 'InvalidStateError') throw err;
+          }
+        };
+      }
+    }
+
+    window.addEventListener('error', function(e) {
+      if (e.message && e.message.includes('setPointerCapture')) return;
+      console.error('CRITICAL RUNTIME ERROR:', e.error || e.message);
+      var el = document.getElementById('critical-error-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'critical-error-banner';
+        el.style = 'position:fixed;top:0;left:0;right:0;z-index:9999999;background:rgba(220,38,38,0.95);color:#fff;padding:16px;font-family:monospace;font-size:13px;white-space:pre-wrap;box-shadow:0 4px 12px rgba(0,0,0,0.5);';
+        document.body.appendChild(el);
+      }
+      el.textContent = 'Runtime Error: ' + (e.error ? (e.error.stack || e.error.message) : e.message) + '\nSource: ' + e.filename + ':' + e.lineno;
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      if (e.reason && typeof e.reason === 'string' && e.reason.includes('setPointerCapture')) return;
+      if (e.reason && e.reason.name === 'InvalidStateError') return;
+      console.error('CRITICAL UNHANDLED REJECTION:', e.reason);
+      var el = document.getElementById('critical-error-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'critical-error-banner';
+        el.style = 'position:fixed;top:0;left:0;right:0;z-index:9999999;background:rgba(220,38,38,0.95);color:#fff;padding:16px;font-family:monospace;font-size:13px;white-space:pre-wrap;box-shadow:0 4px 12px rgba(0,0,0,0.5);';
+        document.body.appendChild(el);
+      }
+      el.textContent = 'Unhandled Rejection: ' + (e.reason ? (e.reason.stack || e.reason.message || e.reason) : e.reason);
+    });
+  </script>
 </head>
 
 <body>
